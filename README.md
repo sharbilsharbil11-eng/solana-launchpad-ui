@@ -4,14 +4,6 @@
 
 Static design template clone of pump.fun for the Pump SDK project. **No blockchain functionality** — pure HTML/CSS/JS with mock data.
 
-This is one of three web directories in the repository:
-
-| Directory | Purpose |
-|-----------|--------|
-| [`website/`](../website/) | SDK documentation & marketing site |
-| **`pumpfun-site/`** (this) | pump.fun UI design template (mock data, no blockchain) |
-| [`site/`](../site/) | PumpOS — full web desktop OS with app store |
-
 ## Pages
 
 | Page | File | Description |
@@ -24,7 +16,6 @@ This is one of three web directories in the repository:
 ## Running Locally
 
 ```bash
-cd pumpfun-site
 npx serve .
 # or
 python3 -m http.server 8000
@@ -62,10 +53,10 @@ Edit CSS variables in `styles.css` `:root` to change the color scheme:
 
 ```bash
 # Vercel
-cd pumpfun-site && vercel
+vercel
 
 # Netlify
-netlify deploy --dir=pumpfun-site
+netlify deploy --dir=.
 
-# GitHub Pages — just push the folder
+# GitHub Pages — enable Pages for this repository
 ```
