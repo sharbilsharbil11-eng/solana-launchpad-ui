@@ -13,6 +13,10 @@ Static design template clone of pump.fun for the Pump SDK project. **No blockcha
 | Trade | `token.html` | Token detail with SVG price chart, buy/sell panel, thread/comments, trades table, holder distribution |
 | Profile | `profile.html` | User profile with created/held tokens, activity history, favorites |
 
+## Live Demo
+
+[solana-launchpad-ui.vercel.app](https://solana-launchpad-ui.vercel.app) (verified serving 2026-07-30). Source: [github.com/nirholas/solana-launchpad-ui](https://github.com/nirholas/solana-launchpad-ui).
+
 ## Running Locally
 
 ```bash
@@ -60,3 +64,8 @@ netlify deploy --dir=.
 
 # GitHub Pages — enable Pages for this repository
 ```
+
+## License
+
+All rights reserved. See [LICENSE](LICENSE). This is a design template, not an
+open-source project: ask before reusing it.
