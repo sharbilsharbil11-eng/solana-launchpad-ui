@@ -69,3 +69,10 @@ netlify deploy --dir=.
 
 All rights reserved. See [LICENSE](LICENSE). This is a design template, not an
 open-source project: ask before reusing it.
+
+## Documentation
+
+Full documentation site: **https://nirholas.github.io/solana-launchpad-ui/**
+
+- [Getting started](docs/getting-started.md) covers install and first run.
+- [Examples](docs/examples.md) has copy-paste snippets.
