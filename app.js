@@ -194,39 +194,36 @@ if ('IntersectionObserver' in window) {
     gridObserver.observe(grid, { childList: true });
   });
 }
-/* === ربط محفظة فانتوم الحقيقية وتوجيه الرسوم للمسؤول === */
-const ADMIN_WALLET_CONFIG = '6r62faMkaF5svQ9QhNcMqp5JCjgQcn4kAj9MJns6wUJo';
-
-async function triggerRealPhantomConnect() {
+// ── Real Phantom Wallet Integration & Admin Fee Routing ──
+async function connectWallet() {
   try {
-    // التأكد من أن محفظة فانتوم مثبتة في المتصفح
     if (window.solana && window.solana.isPhantom) {
-      const response = await window.solana.connect();
+      const response = window.solana.connect ? await window.solana.connect() : await window.solana.request({ method: 'connect' });
       const userWallet = response.publicKey.toString();
-      console.log('تم الاتصال بالمحفظة:', userWallet);
-      alert('تم الاتصال بنجاح! تم تحديد وجهة رسوم المسؤول.');
+      console.log('Connected Admin Destination:', ADMIN_WALLET);
       
-      // تغيير نص الزر ليطابق اختصار عنوان محفظة المستخدم
-      const btn = document.getElementById('connect-wallet-btn') || document.querySelector('.connect-btn');
-      if (btn) {
-        btn.innerText = userWallet.slice(0, 4) + '...' + userWallet.slice(-4);
-      }
+      // تحديث شكل زر المحفظة بالموقع ليظهر عنوانك المختصر
+      const connectBtns = document.querySelectorAll('.connect-wallet-btn, .connect-btn, button');
+      connectBtns.forEach(btn => {
+        if (btn.innerText.toLowerCase().includes('connect') || btn.innerText.includes('ربط')) {
+          btn.innerText = userWallet.slice(0, 4) + '...' + userWallet.slice(-4);
+        }
+      });
       return userWallet;
     } else {
-      // توجيه المستخدم لتثبيت المحفظة في حال لم تكن موجودة
       window.open('https://phantom.app/', '_blank');
-      alert('الرجاء تثبيت محفظة فانتوم للاتصال!');
+      alert('Please install Phantom Wallet to continue!');
     }
   } catch (err) {
-    console.error('خطأ في الاتصال:', err);
+    console.error('Wallet connection error:', err);
   }
 }
 
-// التقاط الضغطات على أزرار الاتصال تلقائياً دون تخريب التصميم الأصلي
-document.addEventListener('click', (e) => {
-  const targetText = e.target.innerText ? e.target.innerText.toLowerCase() : '';
-  if (e.target.matches('button') && (targetText.includes('connect') || targetText.includes('wallet') || targetText.includes('ربط'))) {
+// ربط الضغط على أزرار الاتصال بالموقع بدالة فانتوم
+document.addEventListener('click', function(e) {
+  const target = e.target.closest('button');
+  if (target && (target.innerText.toLowerCase().includes('connect') || target.innerText.includes('wallet') || target.innerText.includes('ربط'))) {
     e.preventDefault();
-    triggerRealPhantomConnect();
+    connectWallet();
   }
 });
