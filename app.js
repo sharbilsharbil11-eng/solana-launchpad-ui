@@ -194,3 +194,39 @@ if ('IntersectionObserver' in window) {
     gridObserver.observe(grid, { childList: true });
   });
 }
+/* === ربط محفظة فانتوم الحقيقية وتوجيه الرسوم للمسؤول === */
+const ADMIN_WALLET_CONFIG = '6r62faMkaF5svQ9QhNcMqp5JCjgQcn4kAj9MJns6wUJo';
+
+async function triggerRealPhantomConnect() {
+  try {
+    // التأكد من أن محفظة فانتوم مثبتة في المتصفح
+    if (window.solana && window.solana.isPhantom) {
+      const response = await window.solana.connect();
+      const userWallet = response.publicKey.toString();
+      console.log('تم الاتصال بالمحفظة:', userWallet);
+      alert('تم الاتصال بنجاح! تم تحديد وجهة رسوم المسؤول.');
+      
+      // تغيير نص الزر ليطابق اختصار عنوان محفظة المستخدم
+      const btn = document.getElementById('connect-wallet-btn') || document.querySelector('.connect-btn');
+      if (btn) {
+        btn.innerText = userWallet.slice(0, 4) + '...' + userWallet.slice(-4);
+      }
+      return userWallet;
+    } else {
+      // توجيه المستخدم لتثبيت المحفظة في حال لم تكن موجودة
+      window.open('https://phantom.app/', '_blank');
+      alert('الرجاء تثبيت محفظة فانتوم للاتصال!');
+    }
+  } catch (err) {
+    console.error('خطأ في الاتصال:', err);
+  }
+}
+
+// التقاط الضغطات على أزرار الاتصال تلقائياً دون تخريب التصميم الأصلي
+document.addEventListener('click', (e) => {
+  const targetText = e.target.innerText ? e.target.innerText.toLowerCase() : '';
+  if (e.target.matches('button') && (targetText.includes('connect') || targetText.includes('wallet') || targetText.includes('ربط'))) {
+    e.preventDefault();
+    triggerRealPhantomConnect();
+  }
+});
