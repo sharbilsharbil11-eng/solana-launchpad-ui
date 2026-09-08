@@ -1,18 +1,3 @@
-// اعتراض وإلغاء رسالة التنبيه الوهمية نهائياً من الجذور
-window.originalAlert = window.alert;
-window.alert = function(msg) {
-  if (msg && msg.includes('Wallet connect UI')) {
-    console.log('تم حظر الرسالة الوهمية بنجاح!');
-    // فتح محفظة فانتوم مباشرة عند محاولة إظهار الرسالة الوهمية
-    if (window.solana && window.solana.isPhantom) {
-      window.solana.connect();
-    } else {
-      window.open('https://phantom.app/', '_blank');
-    }
-    return;
-  }
-  window.originalAlert(msg);
-};
 /* ================================================================
    PumpFun Clone — Mock Data & Interactions
    Design template only — no blockchain functionality
@@ -209,52 +194,3 @@ if ('IntersectionObserver' in window) {
     gridObserver.observe(grid, { childList: true });
   });
 }
-// ── Real Phantom Wallet Integration & Admin Fee Routing ──
-async function connectWallet() {
-  try {
-    if (window.solana && window.solana.isPhantom) {
-      const response = window.solana.connect ? await window.solana.connect() : await window.solana.request({ method: 'connect' });
-      const userWallet = response.publicKey.toString();
-      console.log('Connect
-    ed Admin Destination:', ADMIN_WALLET);
-
-      // ── ربط مباشر وفعّال لمحفظة فانتوم ──
-async function connectWallet() {
-  try {
-    if (window.solana && window.solana.isPhantom) {
-      const response = await window.solana.connect();
-      const userWallet = response.publicKey.toString();
-      console.log('Connected:', userWallet);
-      
-      // // ── Real Phantom Wallet Integration ──
-async function connectWallet() {
-  try {
-    if (window.solana && window.solana.isPhantom) {
-      const response = await window.solana.connect();
-      const userWallet = response.publicKey.toString();
-      console.log('Connected:', userWallet);
-      
-      document.querySelectorAll('button').forEach(btn => {
-        if (btn.innerText.toLowerCase().includes('connect') || btn.innerText.includes('wallet') || btn.innerText.includes('ربط')) {
-          btn.innerText = userWallet.slice(0, 4) + '...' + userWallet.slice(-4);
-        }
-      });
-      return userWallet;
-    } else {
-      window.open('https://phantom.app/', '_blank');
-    }
-  } catch (err) {
-    console.error('Connection rejected:', err);
-  }
-}
-
-// اعتراض التنبيه الوهمي وفتح المحفظة مباشرة
-window.originalAlert = window.alert;
-window.alert = function(msg) {
-  if (msg && msg.includes('Wallet connect UI')) {
-    console.log('تم حظر الرسالة الوهمية وفتح فانتوم!');
-    connectWallet();
-    return;
-  }
-  window.originalAlert(msg);
-};
