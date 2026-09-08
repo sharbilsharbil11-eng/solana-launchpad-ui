@@ -1,5 +1,5 @@
 /* ==========================================================
-   PumpFun Clone - Real Blockchain Functionality & Wallet Connect
+   PumpFun Clone - Full Tokens & Real Wallet Connect
    ========================================================== */
 
 const ADMIN_WALLET = '6r62faMkaF5svQ9QhNcMqp5JCjgQcn4kAj9MJns6wUJo';
@@ -28,7 +28,7 @@ const CREATOR_COLORS = [
   '#22c55e,#16a34a', '#ef4444,#f97316', '#8b5cf6,#6366f1'
 ];
 
-// Wallet Connection Handler
+// Real Phantom Wallet Connection Function
 async function connectWallet() {
   try {
     if (window.solana && window.solana.isPhantom) {
@@ -36,7 +36,6 @@ async function connectWallet() {
       const userWallet = response.publicKey.toString();
       alert('Connected successfully! Wallet: ' + userWallet);
       
-      // Update UI button text if exists
       const connectBtn = document.getElementById('connect-wallet-btn') || document.querySelector('.connect-btn');
       if (connectBtn) {
         connectBtn.innerText = userWallet.slice(0, 4) + '...' + userWallet.slice(-4);
@@ -51,9 +50,11 @@ async function connectWallet() {
   }
 }
 
-// Attach event listeners to connect buttons automatically
+// Override any old click handlers or mock alerts for buttons
 document.addEventListener('click', (e) => {
-  if (e.target.matches('button') && (e.target.innerText.toLowerCase().includes('connect') || e.target.innerText.includes('ربط'))) {
+  const text = e.target.innerText ? e.target.innerText.toLowerCase() : '';
+  if (e.target.matches('button') && (text.includes('connect') || text.includes('ربط') || text.includes('select wallet'))) {
+    e.preventDefault();
     connectWallet();
   }
 });
