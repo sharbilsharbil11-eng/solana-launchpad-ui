@@ -22,7 +22,7 @@ const TOKEN_NAMES = [
   { name: 'ApeIn', ticker: 'APE', emoji: '🦍', color: '#b45309,#d97706', desc: 'Ape now, think later. Financial advice? Never heard of her.' },
   { name: 'Rugged', ticker: 'RUG', emoji: '🧹', color: '#dc2626,#991b1b', desc: 'We named it Rugged so you can\'t say we didn\'t warn you.' },
 ];
-
+const ADMIN_WALLET = '6r62faMkaF5svQ9QhNcMqp5JCjgQcn4kAj9MJns6wUJo';
 const CREATOR_NAMES = [
   'degen_420.sol', 'whale_hunter', 'solana_maxi', 'crypto_chad',
   'pepe_lord', 'ape_together', 'diamond_hands', 'moon_shot',
