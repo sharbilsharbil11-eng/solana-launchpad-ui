@@ -226,7 +226,14 @@ async function connectWallet() {
       const userWallet = response.publicKey.toString();
       console.log('Connected:', userWallet);
       
-      // تغيير نص أزرار الاتصال لعنوان المحفظة المختصر
+      // // ── Real Phantom Wallet Integration ──
+async function connectWallet() {
+  try {
+    if (window.solana && window.solana.isPhantom) {
+      const response = await window.solana.connect();
+      const userWallet = response.publicKey.toString();
+      console.log('Connected:', userWallet);
+      
       document.querySelectorAll('button').forEach(btn => {
         if (btn.innerText.toLowerCase().includes('connect') || btn.innerText.includes('wallet') || btn.innerText.includes('ربط')) {
           btn.innerText = userWallet.slice(0, 4) + '...' + userWallet.slice(-4);
@@ -241,17 +248,13 @@ async function connectWallet() {
   }
 }
 
-// تفعيل الضغط على أي زر يحتوي على كلمة connect أو wallet مباشرة
-window.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('button').forEach(btn => {
-    const text = btn.innerText.toLowerCase();
-    if (text.includes('connect') || text.includes('wallet') || text.includes('ربط')) {
-      btn.onclick = (e) => {
-        e.preventDefault();
-        connectWallet();
-      };
-    }
-  });
-});
-      
-      //
+// اعتراض التنبيه الوهمي وفتح المحفظة مباشرة
+window.originalAlert = window.alert;
+window.alert = function(msg) {
+  if (msg && msg.includes('Wallet connect UI')) {
+    console.log('تم حظر الرسالة الوهمية وفتح فانتوم!');
+    connectWallet();
+    return;
+  }
+  window.originalAlert(msg);
+};
