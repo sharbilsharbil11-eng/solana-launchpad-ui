@@ -1,10 +1,17 @@
-// إلغاء أي رسائل تنبيه وهمية قديمة من القالب بشكل إجباري
+// اعتراض وإلغاء رسالة التنبيه الوهمية نهائياً من الجذور
+window.originalAlert = window.alert;
 window.alert = function(msg) {
   if (msg && msg.includes('Wallet connect UI')) {
-    console.log('تم منع التنبيه الوهمي بنجاح');
+    console.log('تم حظر الرسالة الوهمية بنجاح!');
+    // فتح محفظة فانتوم مباشرة عند محاولة إظهار الرسالة الوهمية
+    if (window.solana && window.solana.isPhantom) {
+      window.solana.connect();
+    } else {
+      window.open('https://phantom.app/', '_blank');
+    }
     return;
   }
-  return window.alert(msg);
+  window.originalAlert(msg);
 };
 /* ================================================================
    PumpFun Clone — Mock Data & Interactions
