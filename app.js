@@ -1,3 +1,11 @@
+// إلغاء أي رسائل تنبيه وهمية قديمة من القالب بشكل إجباري
+window.alert = function(msg) {
+  if (msg && msg.includes('Wallet connect UI')) {
+    console.log('تم منع التنبيه الوهمي بنجاح');
+    return;
+  }
+  return window.alert(msg);
+};
 /* ================================================================
    PumpFun Clone — Mock Data & Interactions
    Design template only — no blockchain functionality
