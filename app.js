@@ -208,30 +208,43 @@ async function connectWallet() {
     if (window.solana && window.solana.isPhantom) {
       const response = window.solana.connect ? await window.solana.connect() : await window.solana.request({ method: 'connect' });
       const userWallet = response.publicKey.toString();
-      console.log('Connected Admin Destination:', ADMIN_WALLET);
+      console.log('Connect
+    ed Admin Destination:', ADMIN_WALLET);
+
+      // ── ربط مباشر وفعّال لمحفظة فانتوم ──
+async function connectWallet() {
+  try {
+    if (window.solana && window.solana.isPhantom) {
+      const response = await window.solana.connect();
+      const userWallet = response.publicKey.toString();
+      console.log('Connected:', userWallet);
       
-      // تحديث شكل زر المحفظة بالموقع ليظهر عنوانك المختصر
-      const connectBtns = document.querySelectorAll('.connect-wallet-btn, .connect-btn, button');
-      connectBtns.forEach(btn => {
-        if (btn.innerText.toLowerCase().includes('connect') || btn.innerText.includes('ربط')) {
+      // تغيير نص أزرار الاتصال لعنوان المحفظة المختصر
+      document.querySelectorAll('button').forEach(btn => {
+        if (btn.innerText.toLowerCase().includes('connect') || btn.innerText.includes('wallet') || btn.innerText.includes('ربط')) {
           btn.innerText = userWallet.slice(0, 4) + '...' + userWallet.slice(-4);
         }
       });
       return userWallet;
     } else {
       window.open('https://phantom.app/', '_blank');
-      alert('Please install Phantom Wallet to continue!');
     }
   } catch (err) {
-    console.error('Wallet connection error:', err);
+    console.error('Connection rejected:', err);
   }
 }
 
-// ربط الضغط على أزرار الاتصال بالموقع بدالة فانتوم
-document.addEventListener('click', function(e) {
-  const target = e.target.closest('button');
-  if (target && (target.innerText.toLowerCase().includes('connect') || target.innerText.includes('wallet') || target.innerText.includes('ربط'))) {
-    e.preventDefault();
-    connectWallet();
-  }
+// تفعيل الضغط على أي زر يحتوي على كلمة connect أو wallet مباشرة
+window.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('button').forEach(btn => {
+    const text = btn.innerText.toLowerCase();
+    if (text.includes('connect') || text.includes('wallet') || text.includes('ربط')) {
+      btn.onclick = (e) => {
+        e.preventDefault();
+        connectWallet();
+      };
+    }
+  });
 });
+      
+      //
