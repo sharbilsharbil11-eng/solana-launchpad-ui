@@ -91,7 +91,7 @@
       <h1 class="create-title">🪙 Create a New Token</h1>
       <p class="create-subtitle">Launch your token on the bonding curve. No presale, no team allocation. Fair launch only.</p>
 
-      <form class="create-form" onsubmit="event.preventDefault(); alert('Token creation would happen here!');">
+      <form class="create-form" id="createForm" onsubmit="handleCreateTokenSubmit(event)">
 
         <!-- Image upload -->
         <div class="form-group">
@@ -176,7 +176,7 @@
         <div class="form-group" style="margin-top:8px;">
           <label class="form-label">Initial Buy (Optional)</label>
           <div class="trade-input-wrap">
-            <input type="number" class="trade-input" placeholder="0.0" step="0.01" min="0">
+            <input type="number" id="initialBuySol" class="trade-input" placeholder="0.0" step="0.01" min="0">
             <div class="trade-input-suffix">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#9945FF"/><circle cx="12" cy="12" r="6" fill="url(#sol)"/><defs><linearGradient id="sol" x1="6" y1="6" x2="18" y2="18"><stop offset="0%" stop-color="#00FFA3"/><stop offset="100%" stop-color="#DC1FFF"/></linearGradient></defs></svg>
               SOL
@@ -186,8 +186,9 @@
         </div>
 
         <!-- Submit -->
-        <button type="submit" class="create-submit">🚀 Create Token</button>
-        <p class="create-cost-note">Cost: ~0.02 SOL (rent + fees)</p>
+        <button type="submit" class="create-submit" id="createSubmitBtn">🚀 Create Token</button>
+        <p class="create-cost-note">Real on-chain transaction — mints 100% of supply onto the bonding curve, signed by your Velo wallet.</p>
+        <p id="createStatus" class="create-cost-note" style="display:none;"></p>
       </form>
     </div>
   </main>
@@ -207,6 +208,7 @@
 
   <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
   <script src="app.js"></script>
+  <script src="bonding-curve.js"></script>
   <script>
     function toggleAdvanced() {
       const el = document.getElementById('advancedOptions');
@@ -217,6 +219,47 @@
       } else {
         el.style.display = 'none';
         arrow.style.transform = '';
+      }
+    }
+
+    async function handleCreateTokenSubmit(e) {
+      e.preventDefault();
+      const statusEl = document.getElementById('createStatus');
+      const submitBtn = document.getElementById('createSubmitBtn');
+      const name = document.getElementById('tokenName').value.trim();
+      const ticker = document.getElementById('tokenTicker').value.trim();
+      const initialBuySol = parseFloat(document.getElementById('initialBuySol').value) || 0;
+
+      if (!name || !ticker) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = 'Name and ticker are required.';
+        return;
+      }
+      if (!currentWallet) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = 'Your Velo wallet is still generating — wait a moment and try again.';
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating on-chain…';
+      statusEl.style.display = 'block';
+      statusEl.style.color = 'var(--text-secondary)';
+      statusEl.textContent = 'Sending transaction — this needs SOL in your Velo wallet for rent + fees.';
+
+      try {
+        const { signature, mint } = await createTokenOnChain({ initialBuySol });
+        statusEl.style.color = 'var(--green)';
+        statusEl.innerHTML = `✅ ${name} ($${ticker}) created! Mint: ${mint.slice(0, 4)}...${mint.slice(-4)} — <a href="https://explorer.solana.com/tx/${signature}?cluster=devnet" target="_blank" rel="noopener" style="color:var(--green);text-decoration:underline;">view transaction</a>`;
+        setTimeout(() => { window.location.href = 'token.html?mint=' + mint; }, 2500);
+      } catch (err) {
+        console.error('Create token failed:', err);
+        submitBtn.disabled = false;
+        submitBtn.textContent = '🚀 Create Token';
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = 'Failed: ' + (err && err.message ? err.message : 'Unknown error. Check the console.');
       }
     }
   </script>

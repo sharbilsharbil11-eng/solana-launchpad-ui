@@ -108,6 +108,28 @@
         <button class="profile-logout-link" onclick="handleLogout()">Not you? Log out</button>
       </div>
 
+      <!-- Claim Creator Fees — real on-chain, Wallet-type creator vaults only for now -->
+      <div class="chart-panel" style="margin:20px 0;padding:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h3 style="font-size:15px;font-weight:700;">💰 Claim Creator Fees</h3>
+          <span class="wallet-network-badge">Wallet-verified only</span>
+        </div>
+        <p class="form-hint" style="margin-bottom:12px;">
+          Enter the mint address of a token you created (as Wallet type) to check and claim accrued creator fees — verified directly on-chain, no OAuth needed.
+        </p>
+        <div class="form-row">
+          <input type="text" id="claimMintInput" class="form-input" placeholder="Token mint address">
+          <button class="btn btn-outline" onclick="handleCheckCreatorFees()">Check</button>
+        </div>
+        <div id="claimFeesResult" style="display:none;margin-top:14px;">
+          <div class="wallet-panel-value-row" style="margin-bottom:10px;">
+            <span class="wallet-panel-balance" id="claimFeesAmount">—</span>
+            <button class="wallet-icon-btn" onclick="handleClaimCreatorFees()" id="claimFeesBtn" style="color:var(--green);font-weight:700;">Claim</button>
+          </div>
+          <p id="claimFeesNote" class="form-hint"></p>
+        </div>
+      </div>
+
       <!-- Profile tabs -->
       <div class="tab-bar" style="margin-bottom:0;">
         <button class="tab active" onclick="switchProfileTab(this, 'created')"><span class="tab-emoji">🪙</span> Created (12)</button>
@@ -177,6 +199,7 @@
 
   <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
   <script src="app.js"></script>
+  <script src="bonding-curve.js"></script>
   <script>
     generateTokenGrid(6, 'createdTokenGrid');
     generateTokenGrid(8, 'heldTokenGrid');
@@ -189,6 +212,79 @@
         const el = document.getElementById('profile-' + t);
         if (el) el.style.display = (t === tab) ? '' : 'none';
       });
+    }
+
+    let lastCheckedClaimMint = null;
+
+    async function handleCheckCreatorFees() {
+      const mintStr = document.getElementById('claimMintInput').value.trim();
+      const resultEl = document.getElementById('claimFeesResult');
+      const amountEl = document.getElementById('claimFeesAmount');
+      const noteEl = document.getElementById('claimFeesNote');
+      const claimBtn = document.getElementById('claimFeesBtn');
+      if (!mintStr) return;
+
+      resultEl.style.display = 'block';
+      amountEl.textContent = 'Checking…';
+      noteEl.textContent = '';
+      claimBtn.style.display = 'none';
+      lastCheckedClaimMint = null;
+
+      try {
+        const connection = new solanaWeb3.Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
+        const mint = new solanaWeb3.PublicKey(mintStr);
+        const vault = await fetchCreatorFeeVault(connection, mint);
+        if (!vault) {
+          amountEl.textContent = '—';
+          noteEl.textContent = 'No creator fee vault found for this mint.';
+          return;
+        }
+        if (vault.creatorType !== 'wallet') {
+          amountEl.textContent = '—';
+          noteEl.textContent = 'This token was registered with a ' + vault.creatorType + ' identity — social claiming isn\'t wired up yet, only Wallet-type vaults can claim right now.';
+          return;
+        }
+        if (!currentWallet || !vault.identityPubkey.equals(currentWallet.publicKey)) {
+          amountEl.textContent = (Number(vault.accruedLamports) / solanaWeb3.LAMPORTS_PER_SOL).toFixed(4) + ' SOL accrued';
+          noteEl.textContent = 'This vault belongs to a different wallet than the one signed in here — only that wallet can claim it.';
+          return;
+        }
+        const sol = Number(vault.accruedLamports) / solanaWeb3.LAMPORTS_PER_SOL;
+        amountEl.textContent = sol.toFixed(4) + ' SOL accrued';
+        if (sol > 0) {
+          noteEl.textContent = 'Verified: this is your wallet\'s vault. Claim goes straight to your Velo wallet.';
+          claimBtn.style.display = '';
+          lastCheckedClaimMint = mintStr;
+        } else {
+          noteEl.textContent = 'Nothing accrued yet — fees build up as people trade this token.';
+        }
+      } catch (err) {
+        console.error('Check creator fees failed:', err);
+        amountEl.textContent = '—';
+        noteEl.textContent = 'Failed: ' + (err && err.message ? err.message : 'Unknown error.');
+      }
+    }
+
+    async function handleClaimCreatorFees() {
+      if (!lastCheckedClaimMint) return;
+      const claimBtn = document.getElementById('claimFeesBtn');
+      const noteEl = document.getElementById('claimFeesNote');
+      claimBtn.disabled = true;
+      claimBtn.textContent = 'Claiming…';
+      try {
+        const { signature, claimedLamports } = await claimCreatorFeesWalletOnChain({ mint: lastCheckedClaimMint });
+        const sol = Number(claimedLamports) / solanaWeb3.LAMPORTS_PER_SOL;
+        noteEl.innerHTML = `✅ Claimed ${sol.toFixed(4)} SOL — <a href="https://explorer.solana.com/tx/${signature}?cluster=devnet" target="_blank" rel="noopener" style="color:var(--green);text-decoration:underline;">view transaction</a>`;
+        document.getElementById('claimFeesAmount').textContent = '0.0000 SOL accrued';
+        claimBtn.style.display = 'none';
+        lastCheckedClaimMint = null;
+      } catch (err) {
+        console.error('Claim creator fees failed:', err);
+        noteEl.textContent = 'Claim failed: ' + (err && err.message ? err.message : 'Unknown error.');
+      } finally {
+        claimBtn.disabled = false;
+        claimBtn.textContent = 'Claim';
+      }
     }
   </script>
 </body>

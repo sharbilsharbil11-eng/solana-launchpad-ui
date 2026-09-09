@@ -1,8 +1,8 @@
 # Velo — Solana Token Launchpad UI
 
-> **Purpose:** UI template for a Solana token launchpad, branded as Velo. Board/create/trade/profile pages run on mock token data; wallets are real Solana keypairs generated client-side.
+> **Purpose:** Solana token launchpad, branded as Velo. The Board's token grid is still mock data for browsing, but Create/Trade/creator-fee-claiming now call a real on-chain Anchor bonding-curve program (`anchor-program/`) once it's deployed — see [Real on-chain trading setup](#real-on-chain-trading-setup). Wallets are real Solana keypairs generated client-side.
 
-Solana token launchpad UI template. Token data is mocked, but each visitor gets a real ed25519 Solana wallet generated and stored in their browser — no external wallet extension required.
+Solana token launchpad. Each visitor gets a real ed25519 Solana wallet generated and stored in their browser — no external wallet extension required — and Create/Trade/claim actions sign real transactions against a real Anchor program.
 
 ## Pages
 
@@ -35,6 +35,7 @@ routes, which only run under `vercel dev` or an actual Vercel deployment.
 ## Features
 
 - **Internal Solana wallet** — a real ed25519 keypair is generated per visitor via `@solana/web3.js`, kept in `localStorage`, and shown in the header/profile with its live devnet balance, address copy, secret-key backup, and reset
+- **Real on-chain bonding curve** — `create.html` mints a real SPL token and activates a real constant-product bonding curve (`anchor-program/`, see [setup](#real-on-chain-trading-setup)); buy/sell and creator-fee claiming (Wallet-verified for now) sign and send real transactions via `bonding-curve.js`
 - **Real account login** — GitHub and Google are real OAuth (backed by Postgres); Wallet is a real signed-message proof of ownership verified server-side. X/TikTok/Kick/Email are placeholders until their own OAuth apps are registered (see below) — see [Real accounts setup](#real-accounts-setup)
 - **Dark theme** with neon green accent
 - **Responsive design** — mobile-first with breakpoints at 480/768/1024px
@@ -113,6 +114,33 @@ work the same way GitHub/Google do. They currently go through a
 placeholder endpoint (`api/auth/mock/callback.js`) that still creates a
 real server session, so the rest of the app (profile gating, logout)
 behaves consistently — it just doesn't verify a real external account yet.
+
+## Real on-chain trading setup
+
+`create.html`, `token.html`, and the creator-fee claim panel on `profile.html`
+call a real Anchor program under `anchor-program/` via `bonding-curve.js`
+(plain `@solana/web3.js`, no bundler — every instruction it builds was
+byte-verified against the real `@coral-xyz/anchor` coder, see
+`anchor-program/idl/validate-manual-encoder.js`). The program ID
+(`4NJruKvypWrYoM5iGj7a9JCg9aVoNzWaDLHk5AsLnVwb`) and fees (0.5% platform +
+0.5% creator) are already set in the code — **but the program itself isn't
+deployed yet**, because building/deploying a Solana program needs the
+Rust/Solana/Anchor toolchain and real network access to a Solana cluster,
+neither of which this sandbox had. Until you deploy it:
+
+- `create.html` will fail with "Failed to fetch" (no `Global` account to read) — expected
+- `token.html`'s Board grid keeps working fine (that's still mock data, unaffected)
+
+**To go live:** follow `anchor-program/README.md`'s "🚀 نشر هذا الإصدار بالضبط"
+section exactly — it has the precise commands, including a script that
+initializes the platform with the 0.5%/0.5% fees already agreed on. You'll
+need the `program-keypair.json` and `oracle-keypair.json` files sent
+separately (they're real secret keys — `.gitignore`d, never committed).
+
+Creator-fee claiming currently only supports **Wallet**-type creators
+(fully trustless, no backend) — X/TikTok/Gmail claiming needs their own
+OAuth app registrations first (see the Anchor program's README for exactly
+what's needed to add each one).
 
 ## License
 
