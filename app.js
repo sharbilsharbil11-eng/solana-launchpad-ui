@@ -342,14 +342,26 @@ async function initWallet() {
 initWallet();
 
 // ── Profile verification modal ──
-// Gates the Profile tab behind a lightweight "verify to log in" step.
-// All methods are mock (no OAuth backend) except Wallet, which connects
-// to a real external Solana wallet extension (Phantom/Solflare/Backpack)
-// and asks it to sign a proof-of-ownership message — a real wallet
-// connection, independent of the internal wallet generated above.
-const VERIFIED_STORAGE_KEY = 'velo_verified';
-const VERIFIED_WALLET_STORAGE_KEY = 'velo_verified_wallet';
+// Gates the Profile tab behind a real account system backed by the /api
+// routes + Postgres: GitHub and Google are real OAuth, Wallet is a real
+// signed-message proof of ownership. X/TikTok/Kick/Email don't have a
+// registered OAuth app yet, so they go through a clearly-labeled
+// placeholder endpoint that still creates a real server session (see
+// api/auth/mock/callback.js) rather than a fake client-side flag.
 let verifyModalContext = 'nav';
+let veloSessionPromise = null;
+let veloSessionCache = { loggedIn: false, user: null };
+
+function getSession(forceRefresh) {
+  if (forceRefresh) veloSessionPromise = null;
+  if (!veloSessionPromise) {
+    veloSessionPromise = fetch('/api/auth/session', { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((data) => { veloSessionCache = data; return data; })
+      .catch((err) => { console.error('Session check failed:', err); return { loggedIn: false, user: null }; });
+  }
+  return veloSessionPromise;
+}
 
 const EXTERNAL_WALLET_PROVIDERS = [
   { name: 'Phantom', get: () => (window.phantom?.solana?.isPhantom && window.phantom.solana) || (window.solana?.isPhantom && window.solana) || null },
@@ -379,29 +391,20 @@ async function connectExternalWallet() {
     const address = (resp?.publicKey || found.instance.publicKey)?.toString();
     if (!address) throw new Error('Wallet did not return a public key');
 
-    // Ask the wallet to sign a proof-of-ownership message (Sign-In with Solana style).
-    if (typeof found.instance.signMessage === 'function') {
-      const message = `Sign in to Velo\nAddress: ${address}\nTimestamp: ${Date.now()}`;
-      try {
-        await found.instance.signMessage(new TextEncoder().encode(message), 'utf8');
-      } catch (signErr) {
-        console.warn('Wallet connected but the user rejected the sign-in message:', signErr);
-        return null;
-      }
+    // Sign a proof-of-ownership message (Sign-In with Solana style). The
+    // backend verifies this signature server-side before trusting the address.
+    if (typeof found.instance.signMessage !== 'function') {
+      console.error('This wallet does not support signMessage, so ownership cannot be verified.');
+      return null;
     }
-    return { address, provider: found.name };
+    const message = `Sign in to Velo\nAddress: ${address}\nTimestamp: ${Date.now()}`;
+    const signed = await found.instance.signMessage(new TextEncoder().encode(message), 'utf8');
+    const sigBytes = signed?.signature || signed;
+    return { address, provider: found.name, message, signature: Array.from(sigBytes) };
   } catch (err) {
     console.error('External wallet connection failed:', err);
     return null;
   }
-}
-
-function isVerified() {
-  try { return localStorage.getItem(VERIFIED_STORAGE_KEY) === 'true'; } catch (err) { return false; }
-}
-
-function setVerified() {
-  try { localStorage.setItem(VERIFIED_STORAGE_KEY, 'true'); } catch (err) { /* ignore */ }
 }
 
 function buildVerifyModal() {
@@ -460,10 +463,15 @@ function closeVerifyModal() {
   if (overlay) overlay.classList.remove('open');
   document.body.style.overflow = '';
   // Landed on profile.html directly while unverified and backed out — nothing to show there.
-  if (verifyModalContext === 'direct' && !isVerified()) {
+  if (verifyModalContext === 'direct' && !veloSessionCache.loggedIn) {
     window.location.href = 'index.html';
   }
 }
+
+const REAL_OAUTH_START_URLS = {
+  google: '/api/auth/google/start',
+  github: '/api/auth/github/start',
+};
 
 async function handleVerify(method, btnEl) {
   if (method === 'wallet') {
@@ -474,46 +482,87 @@ async function handleVerify(method, btnEl) {
       if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalLabel; }
       return;
     }
-    setVerified();
-    try { localStorage.setItem(VERIFIED_WALLET_STORAGE_KEY, JSON.stringify(result)); } catch (err) { /* ignore */ }
-    console.log('Verified via external wallet:', result.provider, result.address);
-  } else {
-    setVerified();
-    console.log('Verified via', method);
-  }
-  const overlay = document.getElementById('verifyModalOverlay');
-  if (overlay) overlay.classList.remove('open');
-  document.body.style.overflow = '';
-  if (verifyModalContext === 'nav') {
+    try {
+      const resp = await fetch('/api/wallet/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ address: result.address, message: result.message, signature: result.signature }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'link_failed');
+    } catch (err) {
+      console.error('Wallet verification failed:', err);
+      if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalLabel; }
+      alert('Could not verify wallet ownership on the server. Please try again.');
+      return;
+    }
+    getSession(true);
+    const overlay = document.getElementById('verifyModalOverlay');
+    if (overlay) overlay.classList.remove('open');
+    document.body.style.overflow = '';
     window.location.href = 'profile.html';
+    return;
   }
+
+  if (REAL_OAUTH_START_URLS[method]) {
+    window.location.href = REAL_OAUTH_START_URLS[method];
+    return;
+  }
+
+  // X, TikTok, Kick, Email — no registered OAuth app yet (see api/auth/mock/callback.js).
+  window.location.href = '/api/auth/mock/callback?method=' + encodeURIComponent(method);
 }
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeVerifyModal();
 });
 
+function renderProfileIdentity(user) {
+  const nameEl = document.getElementById('profileIdentityName');
+  if (!nameEl || !user) return;
+  if (user.name) nameEl.textContent = user.name;
+  else if (user.walletAddress) nameEl.textContent = shortenAddress(user.walletAddress);
+}
+
 function initProfileGate() {
   const onProfilePage = /profile\.html$/.test(location.pathname);
+
   document.querySelectorAll('a[href="profile.html"]').forEach((link) => {
     link.addEventListener('click', function (e) {
-      if (!isVerified()) {
-        e.preventDefault();
-        openVerifyModal('nav');
-      }
+      e.preventDefault();
+      getSession().then((session) => {
+        if (session.loggedIn) {
+          window.location.href = 'profile.html';
+        } else {
+          openVerifyModal('nav');
+        }
+      });
     });
   });
-  if (onProfilePage && !isVerified()) {
-    openVerifyModal('direct');
-  }
+
+  getSession().then((session) => {
+    if (!onProfilePage) return;
+    if (!session.loggedIn) {
+      openVerifyModal('direct');
+    } else {
+      renderProfileIdentity(session.user);
+    }
+  });
 }
 
 initProfileGate();
 
-function handleLogout() {
+async function handleLogout() {
   try {
-    localStorage.removeItem(VERIFIED_STORAGE_KEY);
-    localStorage.removeItem(VERIFIED_WALLET_STORAGE_KEY);
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  } catch (err) { /* ignore */ }
+  veloSessionPromise = null;
+  veloSessionCache = { loggedIn: false, user: null };
+  // Clean up the older localStorage-only flags from before the real backend existed.
+  try {
+    localStorage.removeItem('velo_verified');
+    localStorage.removeItem('velo_verified_wallet');
   } catch (err) { /* ignore */ }
   window.location.href = 'index.html';
 }
