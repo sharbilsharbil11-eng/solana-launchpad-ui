@@ -1,8 +1,8 @@
-# PumpFun Site — Design Template
+# Velo — Solana Token Launchpad UI
 
-> **Purpose:** Static UI design template of pump.fun — mock data only, no blockchain integration.
+> **Purpose:** UI template for a Solana token launchpad, branded as Velo. Board/create/trade/profile pages run on mock token data; wallets are real Solana keypairs generated client-side.
 
-Static design template clone of pump.fun for the Pump SDK project. **No blockchain functionality** — pure HTML/CSS/JS with mock data.
+Solana token launchpad UI template. Token data is mocked, but each visitor gets a real ed25519 Solana wallet generated and stored in their browser — no external wallet extension required.
 
 ## Pages
 
@@ -27,7 +27,8 @@ python3 -m http.server 8000
 
 ## Features
 
-- **Dark theme** with neon green accent (PumpFun-style)
+- **Internal Solana wallet** — a real ed25519 keypair is generated per visitor via `@solana/web3.js`, kept in `localStorage`, and shown in the header/profile with its live devnet balance, address copy, secret-key backup, and reset
+- **Dark theme** with neon green accent
 - **Responsive design** — mobile-first with breakpoints at 480/768/1024px
 - **Activity ticker** — scrolling real-time trade feed
 - **Token card grid** — with bonding curve progress bars, market cap, change %

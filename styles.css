@@ -1,9 +1,7 @@
 /* ================================================================
-   PumpFun Clone — Design Template
+   Velo — Design Template
    ================================================================
-   Color palette: #7bff69 green (matches pump.fun UI)
-   See also: website/styles.css (#00ff88 — SDK docs site)
-             site/pump.css (#5be45b — PumpOS desktop)
+   Color palette: #7bff69 neon green, dark theme
    ================================================================ */
 
 /* ---------- Reset & Variables ---------- */
@@ -131,7 +129,6 @@ input, textarea, select { font-family: inherit; }
 }
 .logo img, .logo svg { width: 36px; height: 36px; }
 .logo-accent { color: var(--green); }
-.logo-crown { font-size: 14px; margin-left: -4px; margin-top: -10px; }
 
 /* Nav */
 .nav { display: flex; align-items: center; gap: 4px; }
@@ -189,6 +186,123 @@ input, textarea, select { font-family: inherit; }
   white-space: nowrap;
 }
 .btn-wallet:hover { transform: translateY(-1px); box-shadow: 0 4px 20px var(--green-glow); }
+.btn-wallet:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* Wallet widget (internal Solana wallet, generated client-side) */
+.wallet-widget { position: relative; flex-shrink: 0; }
+.wallet-balance-chip {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: rgba(14, 14, 22, 0.25);
+  font-size: 12px;
+  font-weight: 600;
+}
+.wallet-panel {
+  display: none;
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 300px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 16px;
+  z-index: 1001;
+}
+.wallet-panel.open { display: block; }
+.wallet-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.wallet-network-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cyan);
+  background: rgba(0, 212, 255, 0.1);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+}
+.wallet-panel-row { margin-bottom: 12px; }
+.wallet-panel-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.wallet-panel-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.wallet-panel-address {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.wallet-panel-balance { flex: 1; font-weight: 700; color: var(--green); font-size: 14px; }
+.wallet-icon-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px;
+  transition: color var(--transition);
+}
+.wallet-icon-btn:hover { color: var(--green); }
+.wallet-panel-toggle {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 6px 0;
+}
+.wallet-panel-toggle:hover { color: var(--text); }
+.wallet-secret-box { display: none; margin: 4px 0 12px; }
+.wallet-secret-box.open { display: block; }
+.wallet-secret-warning { font-size: 11px; color: var(--orange); margin-bottom: 6px; }
+.wallet-secret-key {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  word-break: break-all;
+  max-height: 80px;
+  overflow-y: auto;
+  margin-bottom: 6px;
+}
+.wallet-panel-danger {
+  width: 100%;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: 8px;
+}
+.wallet-panel-danger:hover { background: rgba(239, 68, 68, 0.15); }
 
 /* Mobile toggle */
 .mobile-toggle {
@@ -1100,6 +1214,7 @@ textarea.form-input { min-height: 100px; resize: vertical; line-height: 1.5; }
 @media (max-width: 480px) {
   .token-grid { grid-template-columns: 1fr; }
   .trade-quick-amounts { flex-wrap: wrap; }
+  .wallet-panel { width: calc(100vw - 40px); right: -8px; }
 }
 
 /* ================================================================

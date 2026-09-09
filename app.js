@@ -1,6 +1,7 @@
 /* ================================================================
-   PumpFun Clone — Mock Data & Interactions
-   Design template only — no blockchain functionality
+   Velo — Mock Data & Interactions
+   Token board/create/trade/profile UI runs on mock data.
+   The wallet system below generates real Solana keypairs client-side.
    ================================================================ */
 
 // ── Mock token data ──
@@ -22,7 +23,6 @@ const TOKEN_NAMES = [
   { name: 'ApeIn', ticker: 'APE', emoji: '🦍', color: '#b45309,#d97706', desc: 'Ape now, think later. Financial advice? Never heard of her.' },
   { name: 'Rugged', ticker: 'RUG', emoji: '🧹', color: '#dc2626,#991b1b', desc: 'We named it Rugged so you can\'t say we didn\'t warn you.' },
 ];
-const ADMIN_WALLET = '6r62faMkaF5svQ9QhNcMqp5JCjgQcn4kAj9MJns6wUJo';
 const CREATOR_NAMES = [
   'degen_420.sol', 'whale_hunter', 'solana_maxi', 'crypto_chad',
   'pepe_lord', 'ape_together', 'diamond_hands', 'moon_shot',
@@ -194,3 +194,149 @@ if ('IntersectionObserver' in window) {
     gridObserver.observe(grid, { childList: true });
   });
 }
+// ── Internal Solana Wallet ──
+// No external wallet extension required. Each visitor gets a real
+// ed25519 Solana keypair generated in-browser on first load and kept
+// in localStorage, so the same wallet persists across visits.
+const WALLET_STORAGE_KEY = 'velo_wallet_v1';
+const SOLANA_RPC_ENDPOINT = 'https://api.devnet.solana.com';
+
+let currentWallet = null;
+
+function loadStoredWallet() {
+  try {
+    const raw = localStorage.getItem(WALLET_STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return solanaWeb3.Keypair.fromSecretKey(Uint8Array.from(data.secretKey));
+  } catch (err) {
+    console.error('Failed to load stored wallet:', err);
+    return null;
+  }
+}
+
+function saveWallet(keypair) {
+  localStorage.setItem(WALLET_STORAGE_KEY, JSON.stringify({
+    secretKey: Array.from(keypair.secretKey),
+    publicKey: keypair.publicKey.toBase58(),
+    createdAt: Date.now(),
+  }));
+}
+
+function getOrCreateWallet() {
+  let keypair = loadStoredWallet();
+  if (!keypair) {
+    keypair = solanaWeb3.Keypair.generate();
+    saveWallet(keypair);
+  }
+  return keypair;
+}
+
+function shortenAddress(address) {
+  return address.slice(0, 4) + '...' + address.slice(-4);
+}
+
+async function fetchWalletBalance(publicKey) {
+  try {
+    const connection = new solanaWeb3.Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
+    const lamports = await connection.getBalance(publicKey);
+    return lamports / solanaWeb3.LAMPORTS_PER_SOL;
+  } catch (err) {
+    console.error('Failed to fetch wallet balance:', err);
+    return null;
+  }
+}
+
+function renderWalletAddress() {
+  if (!currentWallet) return;
+  const address = currentWallet.publicKey.toBase58();
+  const shortEl = document.getElementById('walletAddressShort');
+  const fullEl = document.getElementById('walletAddressFull');
+  const secretEl = document.getElementById('walletSecretKey');
+  const profileAddrEl = document.getElementById('profileWalletAddress');
+  if (shortEl) shortEl.textContent = shortenAddress(address);
+  if (fullEl) fullEl.textContent = address;
+  if (secretEl) secretEl.textContent = JSON.stringify(Array.from(currentWallet.secretKey));
+  if (profileAddrEl) profileAddrEl.textContent = address;
+}
+
+async function refreshWalletBalance() {
+  if (!currentWallet) return;
+  const chipEl = document.getElementById('walletBalanceChip');
+  const panelEl = document.getElementById('walletBalanceValue');
+  const profileEl = document.getElementById('profileWalletBalance');
+  if (chipEl) chipEl.textContent = '…';
+  if (panelEl) panelEl.textContent = 'Loading…';
+  const sol = await fetchWalletBalance(currentWallet.publicKey);
+  const short = sol === null ? '—' : `${sol.toFixed(2)} SOL`;
+  const full = sol === null ? 'Unavailable — check connection' : `${sol.toFixed(4)} SOL`;
+  if (chipEl) chipEl.textContent = short;
+  if (panelEl) panelEl.textContent = full;
+  if (profileEl) profileEl.textContent = short;
+}
+
+function toggleWalletPanel(e) {
+  if (e) e.stopPropagation();
+  const panel = document.getElementById('walletPanel');
+  if (panel) panel.classList.toggle('open');
+}
+
+function toggleSecretReveal() {
+  const box = document.getElementById('walletSecretBox');
+  if (box) box.classList.toggle('open');
+}
+
+function copyWalletAddress() {
+  if (!currentWallet) return;
+  navigator.clipboard?.writeText(currentWallet.publicKey.toBase58());
+}
+
+function copyWalletSecret() {
+  if (!currentWallet) return;
+  navigator.clipboard?.writeText(JSON.stringify(Array.from(currentWallet.secretKey)));
+}
+
+async function handleResetWallet() {
+  const ok = confirm('This deletes your current wallet and generates a brand new one. Back up your secret key first — this cannot be undone. Continue?');
+  if (!ok) return;
+  localStorage.removeItem(WALLET_STORAGE_KEY);
+  currentWallet = getOrCreateWallet();
+  renderWalletAddress();
+  await refreshWalletBalance();
+  const box = document.getElementById('walletSecretBox');
+  if (box) box.classList.remove('open');
+}
+
+// Close the wallet panel when clicking outside it
+document.addEventListener('click', function (e) {
+  const panel = document.getElementById('walletPanel');
+  const btn = document.getElementById('walletBtn');
+  if (panel && panel.classList.contains('open') && !panel.contains(e.target) && !(btn && btn.contains(e.target))) {
+    panel.classList.remove('open');
+  }
+});
+
+async function initWallet() {
+  const btn = document.getElementById('walletBtn');
+  if (!btn) return;
+  if (typeof solanaWeb3 === 'undefined') {
+    console.error('Solana web3 library failed to load — wallet generation unavailable.');
+    const shortEl = document.getElementById('walletAddressShort');
+    const profileAddrEl = document.getElementById('profileWalletAddress');
+    const profileBalEl = document.getElementById('profileWalletBalance');
+    if (shortEl) shortEl.textContent = 'Wallet unavailable';
+    if (profileAddrEl) profileAddrEl.textContent = 'Wallet unavailable — check connection';
+    if (profileBalEl) profileBalEl.textContent = '—';
+    btn.disabled = true;
+    return;
+  }
+  try {
+    currentWallet = getOrCreateWallet();
+    renderWalletAddress();
+    await refreshWalletBalance();
+  } catch (err) {
+    console.error('Wallet init failed:', err);
+  }
+}
+
+initWallet();
