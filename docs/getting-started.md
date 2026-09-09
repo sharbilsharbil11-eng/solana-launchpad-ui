@@ -1,6 +1,6 @@
 # Getting started with solana-launchpad-ui
 
-Static design template clone of pump.fun for the Pump SDK project. **No blockchain functionality** — pure HTML/CSS/JS with mock data.
+Velo is a Solana token launchpad UI template. Token data is mocked, but each visitor gets a real Solana wallet generated client-side.
 
 ## Install
 
