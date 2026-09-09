@@ -343,10 +343,58 @@ initWallet();
 
 // ── Profile verification modal ──
 // Gates the Profile tab behind a lightweight "verify to log in" step.
-// All methods are mock (no OAuth backend) except Wallet, which reuses
-// the real internal Solana wallet generated above.
+// All methods are mock (no OAuth backend) except Wallet, which connects
+// to a real external Solana wallet extension (Phantom/Solflare/Backpack)
+// and asks it to sign a proof-of-ownership message — a real wallet
+// connection, independent of the internal wallet generated above.
 const VERIFIED_STORAGE_KEY = 'velo_verified';
+const VERIFIED_WALLET_STORAGE_KEY = 'velo_verified_wallet';
 let verifyModalContext = 'nav';
+
+const EXTERNAL_WALLET_PROVIDERS = [
+  { name: 'Phantom', get: () => (window.phantom?.solana?.isPhantom && window.phantom.solana) || (window.solana?.isPhantom && window.solana) || null },
+  { name: 'Solflare', get: () => (window.solflare?.isSolflare && window.solflare) || null },
+  { name: 'Backpack', get: () => (window.backpack?.isBackpack && window.backpack) || null },
+];
+
+function detectExternalWallet() {
+  for (const provider of EXTERNAL_WALLET_PROVIDERS) {
+    const instance = provider.get();
+    if (instance) return { name: provider.name, instance };
+  }
+  // Fall back to any generic injected Solana provider we didn't specifically identify.
+  if (window.solana) return { name: 'Solana Wallet', instance: window.solana };
+  return null;
+}
+
+async function connectExternalWallet() {
+  const found = detectExternalWallet();
+  if (!found) {
+    const shouldInstall = confirm('No Solana wallet extension found (Phantom, Solflare, or Backpack). Open Phantom\'s site to install one?');
+    if (shouldInstall) window.open('https://phantom.app/', '_blank');
+    return null;
+  }
+  try {
+    const resp = await found.instance.connect();
+    const address = (resp?.publicKey || found.instance.publicKey)?.toString();
+    if (!address) throw new Error('Wallet did not return a public key');
+
+    // Ask the wallet to sign a proof-of-ownership message (Sign-In with Solana style).
+    if (typeof found.instance.signMessage === 'function') {
+      const message = `Sign in to Velo\nAddress: ${address}\nTimestamp: ${Date.now()}`;
+      try {
+        await found.instance.signMessage(new TextEncoder().encode(message), 'utf8');
+      } catch (signErr) {
+        console.warn('Wallet connected but the user rejected the sign-in message:', signErr);
+        return null;
+      }
+    }
+    return { address, provider: found.name };
+  } catch (err) {
+    console.error('External wallet connection failed:', err);
+    return null;
+  }
+}
 
 function isVerified() {
   try { return localStorage.getItem(VERIFIED_STORAGE_KEY) === 'true'; } catch (err) { return false; }
@@ -396,7 +444,7 @@ function buildVerifyModal() {
     this.innerHTML = collapsed ? 'Show more options <span class="chev">⌄</span>' : 'Hide options <span class="chev">⌃</span>';
   });
   overlay.querySelectorAll('.verify-option').forEach((btn) => {
-    btn.addEventListener('click', () => handleVerify(btn.dataset.method));
+    btn.addEventListener('click', () => handleVerify(btn.dataset.method, btn));
   });
 }
 
@@ -417,11 +465,20 @@ function closeVerifyModal() {
   }
 }
 
-function handleVerify(method) {
-  setVerified();
-  if (method === 'wallet' && currentWallet) {
-    console.log('Verified via wallet', currentWallet.publicKey.toBase58());
+async function handleVerify(method, btnEl) {
+  if (method === 'wallet') {
+    const originalLabel = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = 'Connecting…'; }
+    const result = await connectExternalWallet();
+    if (!result) {
+      if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalLabel; }
+      return;
+    }
+    setVerified();
+    try { localStorage.setItem(VERIFIED_WALLET_STORAGE_KEY, JSON.stringify(result)); } catch (err) { /* ignore */ }
+    console.log('Verified via external wallet:', result.provider, result.address);
   } else {
+    setVerified();
     console.log('Verified via', method);
   }
   const overlay = document.getElementById('verifyModalOverlay');
