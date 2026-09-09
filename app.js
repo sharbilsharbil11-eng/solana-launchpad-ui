@@ -340,3 +340,115 @@ async function initWallet() {
 }
 
 initWallet();
+
+// ── Profile verification modal ──
+// Gates the Profile tab behind a lightweight "verify to log in" step.
+// All methods are mock (no OAuth backend) except Wallet, which reuses
+// the real internal Solana wallet generated above.
+const VERIFIED_STORAGE_KEY = 'velo_verified';
+let verifyModalContext = 'nav';
+
+function isVerified() {
+  try { return localStorage.getItem(VERIFIED_STORAGE_KEY) === 'true'; } catch (err) { return false; }
+}
+
+function setVerified() {
+  try { localStorage.setItem(VERIFIED_STORAGE_KEY, 'true'); } catch (err) { /* ignore */ }
+}
+
+function buildVerifyModal() {
+  if (document.getElementById('verifyModalOverlay')) return;
+
+  const walletIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><circle cx="18" cy="16" r="1"/></svg>`;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'verify-modal-overlay';
+  overlay.id = 'verifyModalOverlay';
+  overlay.innerHTML = `
+    <div class="verify-modal" role="dialog" aria-modal="true" aria-labelledby="verifyModalTitle">
+      <button class="verify-modal-close" id="verifyModalClose" aria-label="Close">&times;</button>
+      <h2 class="verify-modal-title" id="verifyModalTitle">Welcome to Velo</h2>
+      <p class="verify-modal-subtitle">Verify your profile to log in</p>
+
+      <button class="verify-option" data-method="x">
+        <span class="verify-option-icon">𝕏</span> Verify with X
+      </button>
+
+      <button class="verify-options-toggle" id="verifyOptionsToggle">Hide options <span class="chev">⌃</span></button>
+
+      <div class="verify-options-list" id="verifyOptionsList">
+        <button class="verify-option" data-method="tiktok"><span class="verify-option-icon">🎵</span> Verify with TikTok</button>
+        <button class="verify-option" data-method="kick"><span class="verify-option-icon">⚡</span> Verify with Kick</button>
+        <button class="verify-option" data-method="github"><span class="verify-option-icon">🐙</span> Verify with GitHub</button>
+        <button class="verify-option" data-method="google"><span class="verify-option-icon" style="color:#4285F4;font-weight:800;">G</span> Verify with Google</button>
+        <button class="verify-option" data-method="email"><span class="verify-option-icon">✉️</span> Verify with Email</button>
+        <button class="verify-option" data-method="wallet"><span class="verify-option-icon">${walletIcon}</span> Verify with Wallet</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeVerifyModal(); });
+  document.getElementById('verifyModalClose').addEventListener('click', closeVerifyModal);
+  document.getElementById('verifyOptionsToggle').addEventListener('click', function () {
+    const list = document.getElementById('verifyOptionsList');
+    const collapsed = list.classList.toggle('collapsed');
+    this.innerHTML = collapsed ? 'Show more options <span class="chev">⌄</span>' : 'Hide options <span class="chev">⌃</span>';
+  });
+  overlay.querySelectorAll('.verify-option').forEach((btn) => {
+    btn.addEventListener('click', () => handleVerify(btn.dataset.method));
+  });
+}
+
+function openVerifyModal(context) {
+  verifyModalContext = context || 'nav';
+  buildVerifyModal();
+  document.getElementById('verifyModalOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeVerifyModal() {
+  const overlay = document.getElementById('verifyModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+  document.body.style.overflow = '';
+  // Landed on profile.html directly while unverified and backed out — nothing to show there.
+  if (verifyModalContext === 'direct' && !isVerified()) {
+    window.location.href = 'index.html';
+  }
+}
+
+function handleVerify(method) {
+  setVerified();
+  if (method === 'wallet' && currentWallet) {
+    console.log('Verified via wallet', currentWallet.publicKey.toBase58());
+  } else {
+    console.log('Verified via', method);
+  }
+  const overlay = document.getElementById('verifyModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+  document.body.style.overflow = '';
+  if (verifyModalContext === 'nav') {
+    window.location.href = 'profile.html';
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeVerifyModal();
+});
+
+function initProfileGate() {
+  const onProfilePage = /profile\.html$/.test(location.pathname);
+  document.querySelectorAll('a[href="profile.html"]').forEach((link) => {
+    link.addEventListener('click', function (e) {
+      if (!isVerified()) {
+        e.preventDefault();
+        openVerifyModal('nav');
+      }
+    });
+  });
+  if (onProfilePage && !isVerified()) {
+    openVerifyModal('direct');
+  }
+}
+
+initProfileGate();
