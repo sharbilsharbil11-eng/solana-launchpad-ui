@@ -1103,6 +1103,16 @@ textarea.form-input { min-height: 100px; resize: vertical; line-height: 1.5; }
   padding: 32px 0;
   border-bottom: 1px solid var(--border);
 }
+.profile-logout-link {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-decoration: underline;
+  flex-shrink: 0;
+}
+.profile-logout-link:hover { color: var(--text-secondary); }
 .profile-avatar {
   width: 80px; height: 80px;
   border-radius: 50%;

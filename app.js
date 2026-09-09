@@ -509,3 +509,11 @@ function initProfileGate() {
 }
 
 initProfileGate();
+
+function handleLogout() {
+  try {
+    localStorage.removeItem(VERIFIED_STORAGE_KEY);
+    localStorage.removeItem(VERIFIED_WALLET_STORAGE_KEY);
+  } catch (err) { /* ignore */ }
+  window.location.href = 'index.html';
+}
