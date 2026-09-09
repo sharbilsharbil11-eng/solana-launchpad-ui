@@ -2,3 +2,11 @@ node_modules/
 .env
 .env.local
 .vercel
+
+# Solana keypairs — secret keys, never commit. program-keypair.json is
+# needed once at deploy time (anchor deploy --program-keypair ...);
+# oracle-keypair.json's secret must live only in the ORACLE_SECRET_KEY
+# env var once social-account claims are wired up (not yet).
+anchor-program/*-keypair.json
+anchor-program/target/
+anchor-program/.anchor/

@@ -1,0 +1,21 @@
+[toolchain]
+
+[features]
+seeds = false
+skip-lint = false
+
+[programs.devnet]
+bonding_curve = "4NJruKvypWrYoM5iGj7a9JCg9aVoNzWaDLHk5AsLnVwb"
+
+[programs.localnet]
+bonding_curve = "4NJruKvypWrYoM5iGj7a9JCg9aVoNzWaDLHk5AsLnVwb"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
