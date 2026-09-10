@@ -305,30 +305,68 @@ document.addEventListener('click', function (e) {
   }
 });
 
+// Renders the header button as the wallet chip (address + balance, opens
+// the wallet panel) — the logged-in state.
+async function showLoggedInWalletButton() {
+  const btn = document.getElementById('walletBtn');
+  if (!btn || !currentWallet) return;
+  btn.onclick = toggleWalletPanel;
+  btn.innerHTML = `
+    <span class="live-dot" style="width:6px;height:6px;"></span>
+    <span id="walletAddressShort"></span>
+    <span class="wallet-balance-chip" id="walletBalanceChip"></span>
+  `;
+  renderWalletAddress();
+  await refreshWalletBalance();
+}
+
+// Renders the header button as a plain "Log in" button that opens the
+// verify modal — the logged-out state. The wallet panel (backup key,
+// log out) stays inert/hidden until the visitor actually logs in.
+function showLoggedOutWalletButton() {
+  const btn = document.getElementById('walletBtn');
+  if (!btn) return;
+  btn.onclick = function (e) { if (e) e.stopPropagation(); openVerifyModal('nav'); };
+  btn.innerHTML = '<span class="wallet-login-label">Log in</span>';
+  const panel = document.getElementById('walletPanel');
+  if (panel) panel.classList.remove('open');
+}
+
+async function applyWalletButtonSessionState(session) {
+  if (session && session.loggedIn) {
+    await showLoggedInWalletButton();
+  } else {
+    showLoggedOutWalletButton();
+  }
+}
+
 async function initWallet() {
   const btn = document.getElementById('walletBtn');
   if (!btn) return;
   if (typeof solanaWeb3 === 'undefined') {
     console.error('Solana web3 library failed to load — wallet generation unavailable.');
-    const shortEl = document.getElementById('walletAddressShort');
     const profileAddrEl = document.getElementById('profileWalletAddress');
     const profileBalEl = document.getElementById('profileWalletBalance');
-    if (shortEl) shortEl.textContent = 'Wallet unavailable';
     if (profileAddrEl) profileAddrEl.textContent = 'Wallet unavailable — check connection';
     if (profileBalEl) profileBalEl.textContent = '—';
     btn.disabled = true;
+    btn.innerHTML = '<span>Wallet unavailable</span>';
     return;
   }
   try {
     currentWallet = getOrCreateWallet();
-    renderWalletAddress();
-    await refreshWalletBalance();
   } catch (err) {
     console.error('Wallet init failed:', err);
+    return;
+  }
+  try {
+    const session = await getSession();
+    await applyWalletButtonSessionState(session);
+  } catch (err) {
+    console.error('Session check failed during wallet init:', err);
+    showLoggedOutWalletButton();
   }
 }
-
-initWallet();
 
 // ── Profile verification modal ──
 // Gates the Profile tab behind a real account system backed by the /api
@@ -541,6 +579,7 @@ function initProfileGate() {
 }
 
 initProfileGate();
+initWallet();
 
 async function handleLogout() {
   try {
