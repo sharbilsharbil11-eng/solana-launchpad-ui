@@ -406,13 +406,6 @@ const EXTERNAL_WALLET_PROVIDERS = [
     get: () => (window.solflare?.isSolflare && window.solflare) || null,
   },
   {
-    id: 'backpack',
-    name: 'Backpack',
-    icon: '🎒',
-    installUrl: 'https://backpack.app/',
-    get: () => (window.backpack?.isBackpack && window.backpack) || null,
-  },
-  {
     id: 'trust',
     name: 'Trust Wallet',
     icon: '🛡️',
