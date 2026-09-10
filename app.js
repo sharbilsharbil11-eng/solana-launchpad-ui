@@ -296,17 +296,6 @@ function copyWalletSecret() {
   navigator.clipboard?.writeText(JSON.stringify(Array.from(currentWallet.secretKey)));
 }
 
-async function handleResetWallet() {
-  const ok = confirm('This deletes your current wallet and generates a brand new one. Back up your secret key first — this cannot be undone. Continue?');
-  if (!ok) return;
-  localStorage.removeItem(WALLET_STORAGE_KEY);
-  currentWallet = getOrCreateWallet();
-  renderWalletAddress();
-  await refreshWalletBalance();
-  const box = document.getElementById('walletSecretBox');
-  if (box) box.classList.remove('open');
-}
-
 // Close the wallet panel when clicking outside it
 document.addEventListener('click', function (e) {
   const panel = document.getElementById('walletPanel');
