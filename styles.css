@@ -1057,6 +1057,15 @@ textarea.form-input { min-height: 100px; resize: vertical; line-height: 1.5; }
   transition: transform var(--transition);
 }
 .form-switch.active::after { transform: translateX(20px); }
+.form-switch-badge {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  background: var(--green-bg);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+}
 
 .create-submit {
   width: 100%;

@@ -152,13 +152,14 @@
             <div class="form-switch" onclick="this.classList.toggle('active')"></div>
           </div>
 
-          <!-- Creator Fee -->
+          <!-- Creator Fee — not a toggle: the on-chain program always creates a
+               CreatorFeeVault for every token, so there is no "off" state to offer. -->
           <div class="form-switch-row" style="margin-bottom:12px;">
             <div>
               <div class="form-switch-label">💰 Creator Fees</div>
-              <div class="form-switch-desc">Earn fees from trades on your token</div>
+              <div class="form-switch-desc">You always earn 0.5% of every trade on your token</div>
             </div>
-            <div class="form-switch" onclick="this.classList.toggle('active')"></div>
+            <span class="form-switch-badge">Always on</span>
           </div>
 
           <!-- Cashback -->
