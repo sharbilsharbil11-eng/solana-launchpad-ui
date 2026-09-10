@@ -1305,7 +1305,7 @@ textarea.form-input { min-height: 100px; resize: vertical; line-height: 1.5; }
   .nav { display: none; }
   .mobile-toggle { display: flex; }
   .header-search { max-width: none; }
-  .btn-wallet span { display: none; }
+  .btn-wallet span:not(.wallet-login-label) { display: none; }
   .token-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
   .king-banner { flex-direction: column; text-align: center; }
   .king-banner-stats { justify-content: center; }
