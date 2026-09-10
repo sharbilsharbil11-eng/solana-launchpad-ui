@@ -1293,6 +1293,47 @@ textarea.form-input { min-height: 100px; resize: vertical; line-height: 1.5; }
 }
 .verify-options-list.collapsed { max-height: 0; }
 
+.wallet-picker-back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 0 14px;
+  margin-right: auto;
+}
+.wallet-picker-back:hover { color: var(--text-secondary); }
+
+.wallet-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.wallet-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 14px;
+  text-align: left;
+  transition: all var(--transition);
+}
+.wallet-picker-option:hover { border-color: var(--green); background: var(--green-bg); }
+.wallet-picker-option:disabled { opacity: 0.6; cursor: not-allowed; }
+.wallet-picker-icon { font-size: 20px; flex-shrink: 0; }
+.wallet-picker-name { flex: 1; }
+.wallet-picker-status { font-size: 12px; font-weight: 500; color: var(--text-muted); flex-shrink: 0; }
+
 /* ================================================================
    RESPONSIVE
    ================================================================ */
