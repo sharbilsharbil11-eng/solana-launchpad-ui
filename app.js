@@ -391,45 +391,56 @@ function getSession(forceRefresh) {
 }
 
 const EXTERNAL_WALLET_PROVIDERS = [
-  { name: 'Phantom', get: () => (window.phantom?.solana?.isPhantom && window.phantom.solana) || (window.solana?.isPhantom && window.solana) || null },
-  { name: 'Solflare', get: () => (window.solflare?.isSolflare && window.solflare) || null },
-  { name: 'Backpack', get: () => (window.backpack?.isBackpack && window.backpack) || null },
+  {
+    id: 'phantom',
+    name: 'Phantom',
+    icon: '👻',
+    installUrl: 'https://phantom.app/',
+    get: () => (window.phantom?.solana?.isPhantom && window.phantom.solana) || (window.solana?.isPhantom && window.solana) || null,
+  },
+  {
+    id: 'solflare',
+    name: 'Solflare',
+    icon: '🔆',
+    installUrl: 'https://solflare.com/',
+    get: () => (window.solflare?.isSolflare && window.solflare) || null,
+  },
+  {
+    id: 'backpack',
+    name: 'Backpack',
+    icon: '🎒',
+    installUrl: 'https://backpack.app/',
+    get: () => (window.backpack?.isBackpack && window.backpack) || null,
+  },
+  {
+    id: 'trust',
+    name: 'Trust Wallet',
+    icon: '🛡️',
+    installUrl: 'https://trustwallet.com/',
+    get: () => window.trustwallet?.solana || null,
+  },
 ];
 
-function detectExternalWallet() {
-  for (const provider of EXTERNAL_WALLET_PROVIDERS) {
-    const instance = provider.get();
-    if (instance) return { name: provider.name, instance };
-  }
-  // Fall back to any generic injected Solana provider we didn't specifically identify.
-  if (window.solana) return { name: 'Solana Wallet', instance: window.solana };
-  return null;
-}
-
-async function connectExternalWallet() {
-  const found = detectExternalWallet();
-  if (!found) {
-    const shouldInstall = confirm('No Solana wallet extension found (Phantom, Solflare, or Backpack). Open Phantom\'s site to install one?');
-    if (shouldInstall) window.open('https://phantom.app/', '_blank');
-    return null;
-  }
+// Connects to one specific wallet provider's injected instance and signs a
+// proof-of-ownership message (Sign-In with Solana style). The backend
+// verifies this signature server-side before trusting the address.
+async function connectToProvider(provider) {
+  const instance = provider.get();
+  if (!instance) return null;
   try {
-    const resp = await found.instance.connect();
-    const address = (resp?.publicKey || found.instance.publicKey)?.toString();
+    const resp = await instance.connect();
+    const address = (resp?.publicKey || instance.publicKey)?.toString();
     if (!address) throw new Error('Wallet did not return a public key');
-
-    // Sign a proof-of-ownership message (Sign-In with Solana style). The
-    // backend verifies this signature server-side before trusting the address.
-    if (typeof found.instance.signMessage !== 'function') {
+    if (typeof instance.signMessage !== 'function') {
       console.error('This wallet does not support signMessage, so ownership cannot be verified.');
       return null;
     }
     const message = `Sign in to Velo\nAddress: ${address}\nTimestamp: ${Date.now()}`;
-    const signed = await found.instance.signMessage(new TextEncoder().encode(message), 'utf8');
+    const signed = await instance.signMessage(new TextEncoder().encode(message), 'utf8');
     const sigBytes = signed?.signature || signed;
-    return { address, provider: found.name, message, signature: Array.from(sigBytes) };
+    return { address, provider: provider.name, message, signature: Array.from(sigBytes) };
   } catch (err) {
-    console.error('External wallet connection failed:', err);
+    console.error(`${provider.name} connection failed:`, err);
     return null;
   }
 }
@@ -445,22 +456,31 @@ function buildVerifyModal() {
   overlay.innerHTML = `
     <div class="verify-modal" role="dialog" aria-modal="true" aria-labelledby="verifyModalTitle">
       <button class="verify-modal-close" id="verifyModalClose" aria-label="Close">&times;</button>
-      <h2 class="verify-modal-title" id="verifyModalTitle">Welcome to Velo</h2>
-      <p class="verify-modal-subtitle">Verify your profile to log in</p>
 
-      <button class="verify-option" data-method="x">
-        <span class="verify-option-icon">𝕏</span> Verify with X
-      </button>
+      <div id="verifyMainView">
+        <h2 class="verify-modal-title" id="verifyModalTitle">Welcome to Velo</h2>
+        <p class="verify-modal-subtitle">Verify your profile to log in</p>
 
-      <button class="verify-options-toggle" id="verifyOptionsToggle">Hide options <span class="chev">⌃</span></button>
+        <button class="verify-option" data-method="x">
+          <span class="verify-option-icon">𝕏</span> Verify with X
+        </button>
 
-      <div class="verify-options-list" id="verifyOptionsList">
-        <button class="verify-option" data-method="tiktok"><span class="verify-option-icon">🎵</span> Verify with TikTok</button>
-        <button class="verify-option" data-method="kick"><span class="verify-option-icon">⚡</span> Verify with Kick</button>
-        <button class="verify-option" data-method="github"><span class="verify-option-icon">🐙</span> Verify with GitHub</button>
-        <button class="verify-option" data-method="google"><span class="verify-option-icon" style="color:#4285F4;font-weight:800;">G</span> Verify with Google</button>
-        <button class="verify-option" data-method="email"><span class="verify-option-icon">✉️</span> Verify with Email</button>
-        <button class="verify-option" data-method="wallet"><span class="verify-option-icon">${walletIcon}</span> Verify with Wallet</button>
+        <button class="verify-options-toggle" id="verifyOptionsToggle">Hide options <span class="chev">⌃</span></button>
+
+        <div class="verify-options-list" id="verifyOptionsList">
+          <button class="verify-option" data-method="tiktok"><span class="verify-option-icon">🎵</span> Verify with TikTok</button>
+          <button class="verify-option" data-method="kick"><span class="verify-option-icon">⚡</span> Verify with Kick</button>
+          <button class="verify-option" data-method="github"><span class="verify-option-icon">🐙</span> Verify with GitHub</button>
+          <button class="verify-option" data-method="google"><span class="verify-option-icon" style="color:#4285F4;font-weight:800;">G</span> Verify with Google</button>
+          <button class="verify-option" data-method="email"><span class="verify-option-icon">✉️</span> Verify with Email</button>
+          <button class="verify-option" data-method="wallet"><span class="verify-option-icon">${walletIcon}</span> Verify with Wallet</button>
+        </div>
+      </div>
+
+      <div id="walletPickerView" hidden>
+        <button class="wallet-picker-back" id="walletPickerBack">← Back</button>
+        <h2 class="verify-modal-title">Connect a wallet on Solana to continue</h2>
+        <div class="wallet-picker-list" id="walletPickerList"></div>
       </div>
     </div>
   `;
@@ -468,6 +488,7 @@ function buildVerifyModal() {
 
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeVerifyModal(); });
   document.getElementById('verifyModalClose').addEventListener('click', closeVerifyModal);
+  document.getElementById('walletPickerBack').addEventListener('click', closeWalletPicker);
   document.getElementById('verifyOptionsToggle').addEventListener('click', function () {
     const list = document.getElementById('verifyOptionsList');
     const collapsed = list.classList.toggle('collapsed');
@@ -478,9 +499,91 @@ function buildVerifyModal() {
   });
 }
 
+// Swaps the modal from the login-method list to the per-wallet picker
+// ("Connect a wallet on Solana to continue"), re-detecting each provider
+// fresh so the Detected/Not installed status is always accurate.
+function renderWalletPickerList() {
+  const list = document.getElementById('walletPickerList');
+  if (!list) return;
+  list.innerHTML = EXTERNAL_WALLET_PROVIDERS.map((p) => {
+    const detected = !!p.get();
+    return `
+      <button class="wallet-picker-option" data-wallet-id="${p.id}">
+        <span class="wallet-picker-icon">${p.icon}</span>
+        <span class="wallet-picker-name">${p.name}</span>
+        <span class="wallet-picker-status">${detected ? 'Detected' : 'Not installed'}</span>
+      </button>
+    `;
+  }).join('');
+  list.querySelectorAll('.wallet-picker-option').forEach((btn) => {
+    btn.addEventListener('click', () => handleWalletPickerSelect(btn.dataset.walletId, btn));
+  });
+}
+
+function openWalletPicker() {
+  renderWalletPickerList();
+  document.getElementById('verifyMainView').hidden = true;
+  document.getElementById('walletPickerView').hidden = false;
+}
+
+function closeWalletPicker() {
+  const pickerView = document.getElementById('walletPickerView');
+  const mainView = document.getElementById('verifyMainView');
+  if (pickerView) pickerView.hidden = true;
+  if (mainView) mainView.hidden = false;
+}
+
+async function handleWalletPickerSelect(walletId, btnEl) {
+  const provider = EXTERNAL_WALLET_PROVIDERS.find((p) => p.id === walletId);
+  if (!provider) return;
+  if (!provider.get()) {
+    window.open(provider.installUrl, '_blank');
+    return;
+  }
+  const originalHTML = btnEl.innerHTML;
+  const statusEl = btnEl.querySelector('.wallet-picker-status');
+  btnEl.disabled = true;
+  if (statusEl) statusEl.textContent = 'Connecting…';
+  const result = await connectToProvider(provider);
+  if (!result) {
+    btnEl.disabled = false;
+    btnEl.innerHTML = originalHTML;
+    return;
+  }
+  if (statusEl) statusEl.textContent = 'Verifying…';
+  await finishWalletVerification(result, btnEl, originalHTML);
+}
+
+// Sends the signed proof-of-ownership message to the backend, which verifies
+// the ed25519 signature server-side before trusting the address, then logs
+// the visitor in.
+async function finishWalletVerification(result, btnEl, originalLabel) {
+  try {
+    const resp = await fetch('/api/wallet/link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ address: result.address, message: result.message, signature: result.signature }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) throw new Error(data.error || 'link_failed');
+  } catch (err) {
+    console.error('Wallet verification failed:', err);
+    if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalLabel; }
+    alert('Could not verify wallet ownership on the server. Please try again.');
+    return;
+  }
+  getSession(true);
+  const overlay = document.getElementById('verifyModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+  document.body.style.overflow = '';
+  window.location.href = 'profile.html';
+}
+
 function openVerifyModal(context) {
   verifyModalContext = context || 'nav';
   buildVerifyModal();
+  closeWalletPicker();
   document.getElementById('verifyModalOverlay').classList.add('open');
   document.body.style.overflow = 'hidden';
 }
@@ -502,33 +605,7 @@ const REAL_OAUTH_START_URLS = {
 
 async function handleVerify(method, btnEl) {
   if (method === 'wallet') {
-    const originalLabel = btnEl ? btnEl.innerHTML : '';
-    if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = 'Connecting…'; }
-    const result = await connectExternalWallet();
-    if (!result) {
-      if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalLabel; }
-      return;
-    }
-    try {
-      const resp = await fetch('/api/wallet/link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ address: result.address, message: result.message, signature: result.signature }),
-      });
-      const data = await resp.json();
-      if (!resp.ok || !data.ok) throw new Error(data.error || 'link_failed');
-    } catch (err) {
-      console.error('Wallet verification failed:', err);
-      if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalLabel; }
-      alert('Could not verify wallet ownership on the server. Please try again.');
-      return;
-    }
-    getSession(true);
-    const overlay = document.getElementById('verifyModalOverlay');
-    if (overlay) overlay.classList.remove('open');
-    document.body.style.overflow = '';
-    window.location.href = 'profile.html';
+    openWalletPicker();
     return;
   }
 
