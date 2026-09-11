@@ -257,6 +257,11 @@
 
       try {
         const { signature, mint } = await createTokenOnChain({ initialBuySol });
+        saveTokenMeta(mint, {
+          name,
+          ticker,
+          description: document.getElementById('tokenDesc').value.trim(),
+        });
         statusEl.style.color = 'var(--green)';
         statusEl.innerHTML = `✅ ${name} ($${ticker}) created! Mint: ${mint.slice(0, 4)}...${mint.slice(-4)} — <a href="https://explorer.solana.com/tx/${signature}?cluster=devnet" target="_blank" rel="noopener" style="color:var(--green);text-decoration:underline;">view transaction</a>`;
         setTimeout(() => { window.location.href = 'token.html?mint=' + mint; }, 2500);
