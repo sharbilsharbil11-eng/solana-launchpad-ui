@@ -148,12 +148,6 @@ function initTabs() {
   });
 }
 
-// ── Mobile nav ──
-function toggleMobileNav() {
-  const nav = document.getElementById('mobileNav');
-  if (nav) nav.classList.toggle('open');
-}
-
 // ── Timeframe buttons ──
 document.addEventListener('click', function (e) {
   if (e.target.classList.contains('chart-tf-btn')) {
