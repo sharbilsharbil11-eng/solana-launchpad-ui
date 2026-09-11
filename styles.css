@@ -414,6 +414,13 @@ input, textarea, select { font-family: inherit; }
   padding: 20px 0;
 }
 
+.token-search-empty {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
 .token-card {
   background: var(--bg-card);
   border: 1px solid var(--border);

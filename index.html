@@ -144,7 +144,11 @@
         <!-- JS generates cards -->
       </div>
 
-      <div style="text-align:center;padding:32px 0;">
+      <div class="token-search-empty" id="tokenSearchEmpty" hidden>
+        No tokens or creators match your search.
+      </div>
+
+      <div style="text-align:center;padding:32px 0;" id="loadMoreWrap">
         <button class="btn btn-outline" onclick="loadMoreTokens()">Load More</button>
       </div>
     </div>

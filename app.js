@@ -88,7 +88,7 @@ function generateTokenGrid(count, gridId) {
     const isKing = i === 0 && !gridId;
     const isNew = rand(0, 5) === 0;
 
-    html += `<div class="token-card fade-in" style="animation-delay:${i * 50}ms" onclick="window.location='token.html'">
+    html += `<div class="token-card fade-in" style="animation-delay:${i * 50}ms" onclick="window.location='token.html'" data-token-name="${t.name.toLowerCase()}" data-token-ticker="${t.ticker.toLowerCase()}" data-token-creator="${creator.toLowerCase()}">
       ${isKing ? '<div class="token-card-badge king">👑 King</div>' : isNew ? '<div class="token-card-badge">✨ New</div>' : ''}
       <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg,${t.color});display:flex;align-items:center;justify-content:center;font-size:64px;">${t.emoji}</div>
       <div class="token-card-body">
@@ -161,6 +161,55 @@ document.querySelectorAll('.header-search input').forEach(input => {
   input.addEventListener('focus', () => input.parentElement.style.borderColor = 'var(--green)');
   input.addEventListener('blur', () => input.parentElement.style.borderColor = 'var(--border)');
 });
+
+// ── Token search: filters the board's token cards by name, ticker or
+// creator handle. Only the board page (index.html) has a #tokenGrid to
+// filter; on other pages the search box hands off to the board on Enter. ──
+function applyTokenSearchFilter(query) {
+  const grid = document.getElementById('tokenGrid');
+  if (!grid) return;
+  const q = query.trim().toLowerCase();
+  const cards = grid.querySelectorAll('.token-card');
+  let visibleCount = 0;
+  cards.forEach((card) => {
+    const matches = !q
+      || (card.dataset.tokenName || '').includes(q)
+      || (card.dataset.tokenTicker || '').includes(q)
+      || (card.dataset.tokenCreator || '').includes(q);
+    card.hidden = !matches;
+    if (matches) visibleCount++;
+  });
+  const emptyState = document.getElementById('tokenSearchEmpty');
+  if (emptyState) emptyState.hidden = !q || visibleCount > 0;
+  const loadMoreWrap = document.getElementById('loadMoreWrap');
+  if (loadMoreWrap) loadMoreWrap.hidden = !!q;
+}
+
+document.querySelectorAll('.header-search input').forEach((input) => {
+  input.addEventListener('input', () => applyTokenSearchFilter(input.value));
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    if (document.getElementById('tokenGrid')) {
+      e.preventDefault();
+      applyTokenSearchFilter(input.value);
+    } else if (input.value.trim()) {
+      window.location.href = 'index.html?q=' + encodeURIComponent(input.value.trim());
+    }
+  });
+});
+
+// Board page: apply a ?q= search param from a cross-page search handoff.
+(function initSearchFromQueryParam() {
+  const grid = document.getElementById('tokenGrid');
+  if (!grid) return;
+  const q = new URLSearchParams(window.location.search).get('q');
+  if (!q) return;
+  document.querySelectorAll('.header-search input').forEach((input) => { input.value = q; });
+  // Wait for generateTokenGrid()'s inline <script> call (runs after app.js
+  // loads) to populate the cards before filtering.
+  window.addEventListener('DOMContentLoaded', () => applyTokenSearchFilter(q));
+  if (document.readyState !== 'loading') applyTokenSearchFilter(q);
+})();
 
 // ── Intersection observer for fade-in ──
 if ('IntersectionObserver' in window) {
