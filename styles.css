@@ -501,6 +501,20 @@ input, textarea, select { font-family: inherit; }
   border-radius: 4px;
 }
 
+.token-card-address {
+  display: block;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: left;
+  transition: color var(--transition);
+}
+.token-card-address:hover { color: var(--green); }
+
 .token-card-desc {
   font-size: 13px;
   color: var(--text-secondary);

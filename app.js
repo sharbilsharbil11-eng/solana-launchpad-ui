@@ -87,8 +87,11 @@ function generateTokenGrid(count, gridId) {
     const creatorColor = randItem(CREATOR_COLORS);
     const isKing = i === 0 && !gridId;
     const isNew = rand(0, 5) === 0;
+    const mintAddress = typeof solanaWeb3 !== 'undefined'
+      ? solanaWeb3.Keypair.generate().publicKey.toBase58()
+      : '';
 
-    html += `<div class="token-card fade-in" style="animation-delay:${i * 50}ms" onclick="window.location='token.html'" data-token-name="${t.name.toLowerCase()}" data-token-ticker="${t.ticker.toLowerCase()}" data-token-creator="${creator.toLowerCase()}">
+    html += `<div class="token-card fade-in" style="animation-delay:${i * 50}ms" onclick="window.location='token.html'" data-token-name="${t.name.toLowerCase()}" data-token-ticker="${t.ticker.toLowerCase()}" data-token-creator="${creator.toLowerCase()}" data-token-address="${mintAddress.toLowerCase()}">
       ${isKing ? '<div class="token-card-badge king">👑 King</div>' : isNew ? '<div class="token-card-badge">✨ New</div>' : ''}
       <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg,${t.color});display:flex;align-items:center;justify-content:center;font-size:64px;">${t.emoji}</div>
       <div class="token-card-body">
@@ -98,6 +101,7 @@ function generateTokenGrid(count, gridId) {
           <span style="margin-left:auto;font-size:11px;color:var(--text-dim);">${rand(1, 59)}m ago</span>
         </div>
         <div class="token-card-name">${t.name} <span class="token-card-ticker">${t.ticker}</span></div>
+        ${mintAddress ? `<button type="button" class="token-card-address" onclick="copyTokenCardAddress(event, this, '${mintAddress}')" title="Copy contract address">${shortenAddress(mintAddress)} 📋</button>` : ''}
         <div class="token-card-desc">${t.desc}</div>
         <div class="bonding-progress">
           <div class="bonding-progress-header">
@@ -132,6 +136,14 @@ function loadMoreTokens() {
   generateTokenGrid(8);
 }
 
+function copyTokenCardAddress(e, btn, address) {
+  e.stopPropagation();
+  navigator.clipboard?.writeText(address);
+  const original = btn.textContent;
+  btn.textContent = 'Copied ✓';
+  setTimeout(() => { btn.textContent = original; }, 1200);
+}
+
 // ── Tab switching ──
 function initTabs() {
   document.querySelectorAll('.tab-bar .tab').forEach(tab => {
@@ -162,9 +174,10 @@ document.querySelectorAll('.header-search input').forEach(input => {
   input.addEventListener('blur', () => input.parentElement.style.borderColor = 'var(--border)');
 });
 
-// ── Token search: filters the board's token cards by name, ticker or
-// creator handle. Only the board page (index.html) has a #tokenGrid to
-// filter; on other pages the search box hands off to the board on Enter. ──
+// ── Token search: filters the board's token cards by name, ticker,
+// creator handle, or contract (mint) address. Only the board page
+// (index.html) has a #tokenGrid to filter; on other pages the search
+// box hands off to the board on Enter. ──
 function applyTokenSearchFilter(query) {
   const grid = document.getElementById('tokenGrid');
   if (!grid) return;
@@ -175,7 +188,8 @@ function applyTokenSearchFilter(query) {
     const matches = !q
       || (card.dataset.tokenName || '').includes(q)
       || (card.dataset.tokenTicker || '').includes(q)
-      || (card.dataset.tokenCreator || '').includes(q);
+      || (card.dataset.tokenCreator || '').includes(q)
+      || (card.dataset.tokenAddress || '').includes(q);
     card.hidden = !matches;
     if (matches) visibleCount++;
   });
