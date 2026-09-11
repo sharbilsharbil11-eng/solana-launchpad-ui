@@ -1359,6 +1359,13 @@ textarea.form-input { min-height: 100px; resize: vertical; line-height: 1.5; }
 }
 
 @media (max-width: 768px) {
+  /* On phones, show the price chart first — the trade panel (Buy/Sell,
+     Token Info) was pinned above it via order:-1 for tablets, but that
+     buries the chart below several screens of scrolling on a phone. */
+  .trade-panel { order: 0; }
+  .chart-header { flex-direction: column; align-items: stretch; gap: 12px; }
+  .chart-timeframes { justify-content: space-between; }
+  .chart-tf-btn { flex: 1; min-width: 0; text-align: center; }
   .nav { display: none; }
   .header-search { max-width: none; }
   .btn-wallet span:not(.wallet-login-label) { display: none; }

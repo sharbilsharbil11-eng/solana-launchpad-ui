@@ -113,6 +113,38 @@ function applyTokenIdentity(mintStr, meta) {
   document.title = (ticker ? '$' + ticker : name) + ' — Velo';
   const imgEl = document.getElementById('chartTokenImg');
   if (imgEl) imgEl.textContent = '🪙';
+
+  applySocialLinks(meta);
+}
+
+// Only what the creator actually filled in on create.html shows up here —
+// no placeholder "#" links to nowhere.
+function normalizeUrl(raw) {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : 'https://' + trimmed;
+}
+
+function applySocialLinks(meta) {
+  const links = { socialTwitter: meta?.twitter, socialTelegram: meta?.telegram, socialWebsite: meta?.website, socialDiscord: meta?.discord };
+  let anyVisible = false;
+  Object.entries(links).forEach(([id, raw]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const url = normalizeUrl(raw);
+    if (url) {
+      el.href = url;
+      // .btn sets display:inline-flex, which beats the [hidden] attribute's
+      // UA-stylesheet display:none at equal specificity — set display
+      // directly rather than relying on `hidden`.
+      el.style.display = '';
+      anyVisible = true;
+    } else {
+      el.style.display = 'none';
+    }
+  });
+  const card = document.getElementById('socialLinksCard');
+  if (card) card.hidden = !anyVisible;
 }
 
 function showTokenLoadError(message) {
