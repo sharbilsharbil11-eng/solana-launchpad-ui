@@ -24,6 +24,7 @@ const ASSOCIATED_TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey('ATokenGPvbdGVxr1b2
 const SYSVAR_RENT_PUBKEY = new solanaWeb3.PublicKey('SysvarRent111111111111111111111111111111111');
 const TOKEN_DECIMALS = 6;
 const DEFAULT_TOTAL_SUPPLY = 1_000_000_000; // whole tokens; matches anchor-program/src/constants.rs conventions
+const CURVE_COMPLETE_SOL_THRESHOLD_LAMPORTS = 85_000_000_000n; // 85 SOL — matches anchor-program/src/constants.rs
 
 // Instruction discriminators — sha256("global:"+name)[0:8], computed and
 // checked against the real Anchor coder (see idl/validate-idl.js).
@@ -400,4 +401,114 @@ async function claimCreatorFeesWalletOnChain({ mint }) {
   const ix = buildClaimCreatorFeesWalletInstruction({ recipient: currentWallet.publicKey, mint: mintPubkey });
   const signature = await sendVeloTransaction(connection, [ix]);
   return { signature, claimedLamports: vault.accruedLamports };
+}
+
+// ── Real trade history & holders, read straight off-chain — no indexer.
+// This is genuinely real data (not simulated): each trade is reconstructed
+// from the actual pre/post SOL + token balance deltas of a real historical
+// transaction that touched the bonding curve PDA. The trade-off of not
+// having a backend indexer: fetching is one RPC round-trip per transaction
+// (so `limit` should stay modest), and lookback is bounded by what
+// getSignaturesForAddress returns — there's no deep pagination here. ──
+
+async function fetchRecentTrades(connection, mint, { limit = 20 } = {}) {
+  const mintPubkey = mint instanceof solanaWeb3.PublicKey ? mint : new solanaWeb3.PublicKey(mint);
+  const [bondingCurve] = getBondingCurvePda(mintPubkey);
+  const curveTokenVault = getAssociatedTokenAddress(mintPubkey, bondingCurve);
+  const vaultBase58 = curveTokenVault.toBase58();
+  const curveBase58 = bondingCurve.toBase58();
+
+  const sigInfos = await connection.getSignaturesForAddress(bondingCurve, { limit });
+  const trades = [];
+
+  for (const sigInfo of sigInfos) {
+    if (sigInfo.err) continue;
+    let tx;
+    try {
+      tx = await connection.getTransaction(sigInfo.signature, { maxSupportedTransactionVersion: 0 });
+    } catch (err) {
+      continue;
+    }
+    if (!tx || !tx.meta) continue;
+
+    const keys = tx.transaction.message.accountKeys.map((k) => (typeof k === 'string' ? k : k.toBase58()));
+    const curveIndex = keys.indexOf(curveBase58);
+    if (curveIndex === -1) continue;
+
+    // The bonding curve PDA holds real SOL reserves as its own lamport
+    // balance (no separate vault account) — its delta tells us buy vs sell.
+    const solDeltaLamports = BigInt(tx.meta.postBalances[curveIndex]) - BigInt(tx.meta.preBalances[curveIndex]);
+    if (solDeltaLamports === 0n) continue;
+
+    const preVault = (tx.meta.preTokenBalances || []).find((b) => keys[b.accountIndex] === vaultBase58);
+    const postVault = (tx.meta.postTokenBalances || []).find((b) => keys[b.accountIndex] === vaultBase58);
+    if (!preVault || !postVault) continue;
+    const tokenDeltaRaw = BigInt(postVault.uiTokenAmount.amount) - BigInt(preVault.uiTokenAmount.amount);
+    if (tokenDeltaRaw === 0n) continue;
+
+    const isBuy = solDeltaLamports > 0n; // SOL flowed into the curve => a buy
+    const solAmount = Number(isBuy ? solDeltaLamports : -solDeltaLamports) / Number(solanaWeb3.LAMPORTS_PER_SOL);
+    const tokenAmount = Number(isBuy ? -tokenDeltaRaw : tokenDeltaRaw) / 10 ** TOKEN_DECIMALS;
+
+    trades.push({
+      signature: sigInfo.signature,
+      type: isBuy ? 'buy' : 'sell',
+      solAmount,
+      tokenAmount,
+      price: tokenAmount > 0 ? solAmount / tokenAmount : 0,
+      maker: keys[0], // fee payer / first signer — the buyer or seller in every instruction we build
+      blockTime: tx.blockTime || sigInfo.blockTime || null,
+    });
+  }
+
+  return trades; // newest first, matching getSignaturesForAddress order
+}
+
+// Top holders via getTokenLargestAccounts (the RPC method built for this —
+// fast and doesn't scale with total holder count, unlike scanning every
+// token account for the mint). Owners are resolved with one batched
+// getMultipleAccountsInfo call.
+async function fetchHolders(connection, mint, { topN = 10 } = {}) {
+  const mintPubkey = mint instanceof solanaWeb3.PublicKey ? mint : new solanaWeb3.PublicKey(mint);
+  const [bondingCurve] = getBondingCurvePda(mintPubkey);
+  const curveTokenVault = getAssociatedTokenAddress(mintPubkey, bondingCurve);
+  const vaultBase58 = curveTokenVault.toBase58();
+
+  const largest = await connection.getTokenLargestAccounts(mintPubkey);
+  // getTokenLargestAccounts returns `address` as a PublicKey instance, not a
+  // string — normalize immediately so every later string comparison (and
+  // the isCurve check below) actually works.
+  const accounts = largest.value.slice(0, topN).map((a) => ({
+    address: a.address instanceof solanaWeb3.PublicKey ? a.address.toBase58() : a.address,
+    amount: a.amount,
+  }));
+  const addresses = accounts.map((a) => new solanaWeb3.PublicKey(a.address));
+  const infos = addresses.length ? await connection.getMultipleAccountsInfo(addresses) : [];
+
+  return accounts.map((a, i) => {
+    const info = infos[i];
+    // SPL token account layout: mint[0:32], owner[32:64], amount[64:72] (u64 LE), ...
+    const owner = info ? new solanaWeb3.PublicKey(info.data.slice(32, 64)).toBase58() : a.address;
+    return {
+      tokenAccount: a.address,
+      owner,
+      amountRaw: BigInt(a.amount),
+      isCurve: a.address === vaultBase58,
+    };
+  });
+}
+
+// A real total holder count needs a full scan (getTokenLargestAccounts only
+// returns the top 20) — this costs one getProgramAccounts call, kept cheap
+// with dataSlice length 0 so it counts matches without downloading data.
+async function fetchHolderCount(connection, mint) {
+  const mintPubkey = mint instanceof solanaWeb3.PublicKey ? mint : new solanaWeb3.PublicKey(mint);
+  const accounts = await connection.getProgramAccounts(TOKEN_PROGRAM_ID, {
+    filters: [
+      { dataSize: 165 },
+      { memcmp: { offset: 0, bytes: mintPubkey.toBase58() } },
+    ],
+    dataSlice: { offset: 0, length: 0 },
+  });
+  return accounts.length;
 }

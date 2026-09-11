@@ -101,10 +101,10 @@
           <div class="chart-panel">
             <div class="chart-header">
               <div class="chart-token-info">
-                <div class="chart-token-img" style="background:linear-gradient(135deg,#6366f1,#a855f7);display:flex;align-items:center;justify-content:center;color:white;font-size:20px;font-weight:900;border-radius:8px;">🐸</div>
+                <div class="chart-token-img" id="chartTokenImg" style="background:linear-gradient(135deg,#6366f1,#a855f7);display:flex;align-items:center;justify-content:center;color:white;font-size:20px;font-weight:900;border-radius:8px;">🐸</div>
                 <div>
-                  <div class="chart-token-name">PEPE2025 <span class="chart-token-ticker">$PEPE25</span></div>
-                  <div class="chart-token-price">$0.0001847</div>
+                  <div class="chart-token-name" id="chartTokenName">PEPE2025 <span class="chart-token-ticker">$PEPE25</span></div>
+                  <div class="chart-token-price" id="chartTokenPrice">$0.0001847</div>
                 </div>
               </div>
               <div class="chart-timeframes">
@@ -133,18 +133,16 @@
                   <line x1="0" y1="240" x2="800" y2="240"/>
                   <line x1="0" y1="320" x2="800" y2="320"/>
                 </g>
-                <!-- Candles -->
-                <g id="candles"></g>
                 <!-- Price line -->
-                <path d="M0 300 Q50 280, 80 290 T160 260 T240 200 T320 220 T400 180 T480 140 T520 160 T560 120 T600 130 T640 90 T700 100 T750 70 T800 80"
+                <path id="chartLinePath" d="M0 300 Q50 280, 80 290 T160 260 T240 200 T320 220 T400 180 T480 140 T520 160 T560 120 T600 130 T640 90 T700 100 T750 70 T800 80"
                       fill="none" stroke="#7bff69" stroke-width="2"/>
                 <!-- Area fill -->
-                <path d="M0 300 Q50 280, 80 290 T160 260 T240 200 T320 220 T400 180 T480 140 T520 160 T560 120 T600 130 T640 90 T700 100 T750 70 T800 80 L800 400 L0 400 Z"
+                <path id="chartAreaPath" d="M0 300 Q50 280, 80 290 T160 260 T240 200 T320 220 T400 180 T480 140 T520 160 T560 120 T600 130 T640 90 T700 100 T750 70 T800 80 L800 400 L0 400 Z"
                       fill="url(#chartGrad)"/>
                 <!-- Current price line -->
-                <line x1="0" y1="80" x2="800" y2="80" stroke="#7bff69" stroke-width="0.5" stroke-dasharray="4,4" opacity="0.5"/>
-                <rect x="740" y="72" width="60" height="18" rx="3" fill="#7bff69"/>
-                <text x="770" y="84" font-size="10" fill="#0e0e16" text-anchor="middle" font-weight="700">$0.000184</text>
+                <line id="chartCurrentLine" x1="0" y1="80" x2="800" y2="80" stroke="#7bff69" stroke-width="0.5" stroke-dasharray="4,4" opacity="0.5"/>
+                <rect id="chartCurrentLabelBg" x="740" y="72" width="60" height="18" rx="3" fill="#7bff69"/>
+                <text id="chartCurrentLabelText" x="770" y="84" font-size="10" fill="#0e0e16" text-anchor="middle" font-weight="700">$0.000184</text>
               </svg>
             </div>
           </div>
@@ -208,7 +206,7 @@
                     <th>Maker</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody id="tradesTableBody">
                   <tr><td><span class="tx-type buy">BUY</span></td><td>5.00</td><td>27,041,382</td><td>2m ago</td><td style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">Fg7h...x9Kp</td></tr>
                   <tr><td><span class="tx-type sell">SELL</span></td><td>1.20</td><td>6,489,932</td><td>3m ago</td><td style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">8kLm...nQ2r</td></tr>
                   <tr><td><span class="tx-type buy">BUY</span></td><td>2.50</td><td>13,520,691</td><td>4m ago</td><td style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">Dp3s...vW7t</td></tr>
@@ -223,7 +221,7 @@
 
             <!-- Holders section (hidden) -->
             <div class="thread-panel" id="tab-holders" style="display:none;">
-              <div class="holder-list">
+              <div class="holder-list" id="holderList">
                 <div class="holder-row"><span class="holder-rank">1</span><span class="holder-addr">Bonding Curve (Locked)</span><span class="holder-pct green">42.3%</span><div class="holder-bar"><div class="holder-bar-fill" style="width:42.3%"></div></div></div>
                 <div class="holder-row"><span class="holder-rank">2</span><span class="holder-addr">Fg7h...x9Kp</span><span class="holder-pct">8.1%</span><div class="holder-bar"><div class="holder-bar-fill" style="width:8.1%"></div></div></div>
                 <div class="holder-row"><span class="holder-rank">3</span><span class="holder-addr">Yb6u...zA1x</span><span class="holder-pct">6.4%</span><div class="holder-bar"><div class="holder-bar-fill" style="width:6.4%"></div></div></div>
@@ -258,13 +256,13 @@
             <div class="trade-input-group">
               <div class="trade-input-label">
                 <span>Amount</span>
-                <span>Balance: 12.45 SOL</span>
+                <span>Balance: <span id="tradeBalanceLabel">—</span></span>
               </div>
               <div class="trade-input-wrap">
-                <input type="number" class="trade-input" placeholder="0.0" step="0.01" min="0">
-                <div class="trade-input-suffix">
+                <input type="number" class="trade-input" id="tradeAmountInput" placeholder="0.0" step="0.01" min="0">
+                <div class="trade-input-suffix" id="tradeInputSuffix">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#9945FF"/><circle cx="12" cy="12" r="6" fill="url(#sol2)"/><defs><linearGradient id="sol2" x1="6" y1="6" x2="18" y2="18"><stop offset="0%" stop-color="#00FFA3"/><stop offset="100%" stop-color="#DC1FFF"/></linearGradient></defs></svg>
-                  SOL
+                  <span id="tradeInputSuffixLabel">SOL</span>
                 </div>
               </div>
             </div>
@@ -281,12 +279,13 @@
             <div class="trade-slippage">
               <span>Slippage</span>
               <div class="trade-slippage-value">
-                <span>1%</span>
+                <span>5%</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
               </div>
             </div>
 
             <button class="trade-submit buy-btn" id="tradeBtn">🟢 Place Trade</button>
+            <p class="create-cost-note" id="tradeStatus" style="display:none;"></p>
           </div>
 
           <!-- Token info -->
@@ -294,41 +293,41 @@
             <div style="font-weight:700;font-size:15px;margin-bottom:12px;">Token Info</div>
             <div class="token-info-row">
               <span class="token-info-key">Market Cap</span>
-              <span class="token-info-val green">$847,293</span>
+              <span class="token-info-val green" id="infoMarketCap">$847,293</span>
             </div>
             <div class="token-info-row">
-              <span class="token-info-key">24h Volume</span>
-              <span class="token-info-val">$2,103,847</span>
+              <span class="token-info-key" id="infoVolumeLabel">24h Volume</span>
+              <span class="token-info-val" id="infoVolume">$2,103,847</span>
             </div>
             <div class="token-info-row">
               <span class="token-info-key">Liquidity</span>
-              <span class="token-info-val">$423,910</span>
+              <span class="token-info-val" id="infoLiquidity">$423,910</span>
             </div>
             <div class="token-info-row">
               <span class="token-info-key">Holders</span>
-              <span class="token-info-val">4,821</span>
+              <span class="token-info-val" id="infoHolders">4,821</span>
             </div>
             <div class="token-info-row">
               <span class="token-info-key">Total Supply</span>
-              <span class="token-info-val">1,000,000,000</span>
+              <span class="token-info-val" id="infoSupply">1,000,000,000</span>
             </div>
             <div class="token-info-row">
               <span class="token-info-key">Creator</span>
-              <span class="token-info-val" style="font-family:var(--font-mono);font-size:12px;">Fg7h...x9Kp</span>
+              <span class="token-info-val" id="infoCreator" style="font-family:var(--font-mono);font-size:12px;">Fg7h...x9Kp</span>
             </div>
             <div class="token-info-row">
               <span class="token-info-key">Status</span>
-              <span class="token-info-val green">🟢 Active</span>
+              <span class="token-info-val green" id="infoStatus">🟢 Active</span>
             </div>
 
             <!-- Bonding curve progress -->
             <div style="margin-top:16px;">
               <div class="bonding-progress-header">
                 <span>Bonding Curve Progress</span>
-                <span style="color:var(--green);font-weight:700;">72.4%</span>
+                <span style="color:var(--green);font-weight:700;" id="infoProgressPct">72.4%</span>
               </div>
               <div class="bonding-progress-bar" style="height:6px;">
-                <div class="bonding-progress-fill" style="width:72.4%"></div>
+                <div class="bonding-progress-fill" id="infoProgressBar" style="width:72.4%"></div>
               </div>
               <p style="font-size:11px;color:var(--text-dim);margin-top:6px;">When 100% filled, liquidity migrates to Raydium and trading begins on AMM.</p>
             </div>
@@ -364,6 +363,7 @@
   <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
   <script src="app.js"></script>
   <script src="bonding-curve.js"></script>
+  <script src="token-page.js"></script>
   <script>
     function switchDetailTab(btn, tab) {
       document.querySelectorAll('.chart-below-tab').forEach(t => t.classList.remove('active'));
@@ -378,6 +378,7 @@
       btns.forEach(b => { b.classList.remove('active-buy', 'active-sell'); });
       btn.classList.add(mode === 'buy' ? 'active-buy' : 'active-sell');
       const submit = document.getElementById('tradeBtn');
+      submit.dataset.mode = mode;
       if (mode === 'buy') {
         submit.className = 'trade-submit buy-btn';
         submit.textContent = '🟢 Place Trade';
@@ -385,10 +386,20 @@
         submit.className = 'trade-submit sell-btn';
         submit.textContent = '🔴 Sell Tokens';
       }
+      if (typeof onTradeModeChanged === 'function') onTradeModeChanged(mode);
     }
 
     function setAmount(val) {
-      document.querySelector('.trade-input').value = val || '';
+      document.getElementById('tradeAmountInput').value = val || '';
+    }
+
+    // Real mode: a ?mint= in the URL means this is a real, just-created
+    // token — load its live on-chain state instead of the static demo
+    // above. No ?mint= (e.g. arriving from a board card, which is still
+    // mock data) leaves the demo untouched.
+    const veloMintParam = new URLSearchParams(window.location.search).get('mint');
+    if (veloMintParam && typeof initRealTokenPage === 'function') {
+      initRealTokenPage(veloMintParam);
     }
   </script>
 </body>

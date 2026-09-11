@@ -280,6 +280,32 @@ function saveWallet(keypair) {
   }));
 }
 
+// ── Token metadata (name/ticker/description) ──
+// The on-chain program doesn't store token metadata (no Metaplex metadata
+// account is created), so create.html saves what the creator typed here,
+// keyed by mint, for token.html to read back when displaying a real token.
+// It's real user input, genuinely persisted — just client-side only, so it
+// won't show up for someone opening the same mint from a different browser.
+const TOKEN_META_STORAGE_PREFIX = 'velo_token_meta_';
+
+function saveTokenMeta(mint, meta) {
+  try {
+    localStorage.setItem(TOKEN_META_STORAGE_PREFIX + mint, JSON.stringify(meta));
+  } catch (err) {
+    console.error('Failed to save token metadata:', err);
+  }
+}
+
+function loadTokenMeta(mint) {
+  try {
+    const raw = localStorage.getItem(TOKEN_META_STORAGE_PREFIX + mint);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    console.error('Failed to load token metadata:', err);
+    return null;
+  }
+}
+
 function getOrCreateWallet() {
   let keypair = loadStoredWallet();
   if (!keypair) {
