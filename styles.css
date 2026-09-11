@@ -53,7 +53,7 @@
   --transition-slow: 300ms ease;
 }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; overflow-x: hidden; }
 
 body {
   font-family: var(--font);
@@ -153,6 +153,7 @@ input, textarea, select { font-family: inherit; }
   border-radius: var(--radius-full);
   padding: 0 16px;
   flex: 1;
+  min-width: 0;
   max-width: 400px;
   height: 38px;
   transition: border-color var(--transition);
@@ -161,6 +162,7 @@ input, textarea, select { font-family: inherit; }
 .header-search svg { flex-shrink: 0; color: var(--text-muted); }
 .header-search input {
   flex: 1;
+  min-width: 0;
   background: none;
   border: none;
   outline: none;
