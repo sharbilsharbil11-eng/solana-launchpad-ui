@@ -140,12 +140,12 @@
           <div class="form-group" style="margin-bottom:20px;">
             <label class="form-label">Social Links</label>
             <div class="form-row">
-              <input type="url" class="form-input" placeholder="Twitter URL">
-              <input type="url" class="form-input" placeholder="Telegram URL">
+              <input type="url" id="tokenTwitter" class="form-input" placeholder="Twitter URL">
+              <input type="url" id="tokenTelegram" class="form-input" placeholder="Telegram URL">
             </div>
             <div class="form-row" style="margin-top:12px;">
-              <input type="url" class="form-input" placeholder="Website URL">
-              <input type="url" class="form-input" placeholder="Discord URL">
+              <input type="url" id="tokenWebsite" class="form-input" placeholder="Website URL">
+              <input type="url" id="tokenDiscord" class="form-input" placeholder="Discord URL">
             </div>
           </div>
 
@@ -261,6 +261,10 @@
           name,
           ticker,
           description: document.getElementById('tokenDesc').value.trim(),
+          twitter: document.getElementById('tokenTwitter').value.trim(),
+          telegram: document.getElementById('tokenTelegram').value.trim(),
+          website: document.getElementById('tokenWebsite').value.trim(),
+          discord: document.getElementById('tokenDiscord').value.trim(),
         });
         statusEl.style.color = 'var(--green)';
         statusEl.innerHTML = `✅ ${name} ($${ticker}) created! Mint: ${mint.slice(0, 4)}...${mint.slice(-4)} — <a href="https://explorer.solana.com/tx/${signature}?cluster=devnet" target="_blank" rel="noopener" style="color:var(--green);text-decoration:underline;">view transaction</a>`;
