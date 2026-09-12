@@ -341,7 +341,7 @@ async function sendVeloTransaction(connection, instructions, extraSigners = []) 
   return signature;
 }
 
-async function createTokenOnChain({ totalSupply = DEFAULT_TOTAL_SUPPLY, initialBuySol = 0, xHandle = null } = {}) {
+async function createTokenOnChain({ totalSupply = DEFAULT_TOTAL_SUPPLY, initialBuySol = 0, xHandle = null, recipients = null } = {}) {
   const connection = new solanaWeb3.Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
   const global = await fetchGlobal(connection);
   if (!global) throw new Error('The platform has not been initialized on-chain yet.');
@@ -349,14 +349,20 @@ async function createTokenOnChain({ totalSupply = DEFAULT_TOTAL_SUPPLY, initialB
   const mintKeypair = solanaWeb3.Keypair.generate();
   const totalSupplyRaw = BigInt(totalSupply) * 10n ** BigInt(TOKEN_DECIMALS);
 
-  // Single-recipient fee splitter (100% of the creator's share): either this
-  // wallet (default, and the only type claim_fee_split_wallet can pay out
-  // today), or an X handle — the program accepts CreatorType::X with no
-  // verification of who actually owns that handle, so its fees just accrue
-  // safely in the splitter until a real oracle-verified claim path exists.
-  const recipients = xHandle
-    ? [{ creatorType: { x: {} }, socialHandle: xHandle, wallet: null, bps: FEE_SPLIT_TOTAL_BPS }]
-    : [{ creatorType: { wallet: {} }, socialHandle: null, wallet: currentWallet.publicKey, bps: FEE_SPLIT_TOTAL_BPS }];
+  // Fee splitter recipients (creator's 0.5% fee share, divided by bps —
+  // FEE_SPLIT_TOTAL_BPS = 100% of that share, not of total trade volume).
+  // Callers building a multi-recipient split (create.html's "Add recipient"
+  // UI) pass `recipients` directly, already shaped as
+  // [{ creatorType, socialHandle, wallet, bps }, ...]. Without it, this
+  // falls back to the single-recipient default: either this wallet, or an
+  // X handle — the program accepts CreatorType::X with no verification of
+  // who actually owns that handle, so its fees just accrue safely in the
+  // splitter until a real oracle-verified claim path exists.
+  if (!recipients) {
+    recipients = xHandle
+      ? [{ creatorType: { x: {} }, socialHandle: xHandle, wallet: null, bps: FEE_SPLIT_TOTAL_BPS }]
+      : [{ creatorType: { wallet: {} }, socialHandle: null, wallet: currentWallet.publicKey, bps: FEE_SPLIT_TOTAL_BPS }];
+  }
   const createIx = buildCreateTokenInstruction({
     creator: currentWallet.publicKey,
     mint: mintKeypair.publicKey,

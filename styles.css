@@ -1026,6 +1026,36 @@ textarea.form-input { min-height: 100px; resize: vertical; line-height: 1.5; }
   gap: 12px;
 }
 
+/* Fee-splitter recipient rows (create.html) */
+.fee-recipient-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.fee-recipient-row .recipient-type-select { flex: 0 0 150px; }
+.fee-recipient-row .recipient-identity-input { flex: 1 1 auto; min-width: 0; }
+.fee-recipient-row .recipient-bps-input { flex: 0 0 72px; text-align: right; }
+.fee-recipient-row .recipient-pct-sign { color: var(--text-muted); font-size: 13px; flex: 0 0 auto; }
+.fee-recipient-row .recipient-remove-btn {
+  flex: 0 0 auto;
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.fee-recipient-row .recipient-remove-btn:hover { border-color: var(--red); color: var(--red); }
+.fee-recipient-row .recipient-remove-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+@media (max-width: 560px) {
+  .fee-recipient-row { flex-wrap: wrap; }
+  .fee-recipient-row .recipient-type-select { flex: 1 1 100%; }
+  .fee-recipient-row .recipient-identity-input { flex: 1 1 auto; }
+}
+
 /* Switches/checkboxes */
 .form-switch-row {
   display: flex;
