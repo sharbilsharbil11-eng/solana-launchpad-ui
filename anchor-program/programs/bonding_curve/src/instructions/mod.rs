@@ -9,6 +9,7 @@ pub mod reserve_claim;
 pub mod claim_tokens;
 pub mod claim_creator_fees_wallet;
 pub mod claim_creator_fees_social;
+pub mod claim_fee_split_wallet;
 pub mod revoke_claim;
 
 pub use initialize::*;
@@ -22,4 +23,5 @@ pub use reserve_claim::*;
 pub use claim_tokens::*;
 pub use claim_creator_fees_wallet::*;
 pub use claim_creator_fees_social::*;
+pub use claim_fee_split_wallet::*;
 pub use revoke_claim::*;

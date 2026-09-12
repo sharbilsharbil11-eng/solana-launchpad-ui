@@ -1,6 +1,6 @@
 use crate::constants::*;
 use crate::errors::BondingCurveError;
-use crate::state::{BondingCurve, CreatorFeeVault, Global};
+use crate::state::{BondingCurve, FeeSplitter, Global};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
@@ -36,13 +36,14 @@ pub struct Sell<'info> {
     #[account(mut, constraint = fee_recipient.key() == global.fee_recipient)]
     pub fee_recipient: UncheckedAccount<'info>,
 
-    /// خزينة أرباح صانع العملة — الـ Creator Fee يتجمّع هنا بدل تحويل مباشر
+    /// خزينة الرسوم المُقسَّمة — الـ Creator Fee يتجمّع هنا بدل تحويل مباشر، ثم
+    /// يتوزّع داخليًا على كل مستفيدي المصفوفة حسب حصة كل واحد
     #[account(
         mut,
-        seeds = [CREATOR_FEE_VAULT_SEED, mint.key().as_ref()],
-        bump = creator_fee_vault.bump,
+        seeds = [FEE_SPLITTER_SEED, mint.key().as_ref()],
+        bump = fee_splitter.bump,
     )]
-    pub creator_fee_vault: Account<'info, CreatorFeeVault>,
+    pub fee_splitter: Account<'info, FeeSplitter>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -107,16 +108,12 @@ pub fn handler(ctx: Context<Sell>, token_amount: u64, min_sol_out: u64) -> Resul
         .try_borrow_mut_lamports()? += result.platform_fee;
     **ctx
         .accounts
-        .creator_fee_vault
+        .fee_splitter
         .to_account_info()
         .try_borrow_mut_lamports()? += result.creator_fee;
 
     if result.creator_fee > 0 {
-        let vault = &mut ctx.accounts.creator_fee_vault;
-        vault.accrued_lamports = vault
-            .accrued_lamports
-            .checked_add(result.creator_fee)
-            .ok_or(BondingCurveError::MathOverflow)?;
+        ctx.accounts.fee_splitter.distribute(result.creator_fee)?;
     }
 
     // 3. تحديث حالة المنحنى

@@ -1,7 +1,10 @@
 use crate::constants::*;
 use crate::errors::BondingCurveError;
 use crate::identity::{encode_identity, normalize_identity};
-use crate::state::{BondingCurve, CreatorFeeVault, CreatorType};
+use crate::state::{
+    BondingCurve, CreatorType, FeeSplitRecipient, FeeSplitRecipientInput, FeeSplitter,
+    FEE_SPLIT_TOTAL_BPS, MAX_FEE_SPLIT_RECIPIENTS,
+};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::spl_token::instruction::AuthorityType;
@@ -19,11 +22,11 @@ use anchor_spl::token::{self, Mint, MintTo, SetAuthority, Token, TokenAccount};
 /// الخطوات المنفصلة القديم (mint من الـ client → create_bonding_curve →
 /// init_creator_fee_vault) اللي كان ثلاث معاملات منفصلة.
 ///
-/// الـ decimals و creator_type و social_handle/creator_wallet لازم يوصلوا
-/// كـ instruction args (مو accounts) عشان نقدر نستخدمهم بـ #[instruction(...)]
-/// لاشتقاق قيود الحسابات (mint::decimals، seeds الهوية).
+/// الـ decimals و recipients (مصفوفة توزيع الرسوم) لازم يوصلوا كـ instruction
+/// args (مو accounts) عشان نقدر نستخدمهم بـ #[instruction(...)] لاشتقاق قيود
+/// الحسابات (mint::decimals، seeds الهوية).
 #[derive(Accounts)]
-#[instruction(decimals: u8, total_supply: u64, creator_type: CreatorType, social_handle: Option<String>, creator_wallet: Option<Pubkey>)]
+#[instruction(decimals: u8, total_supply: u64, recipients: Vec<FeeSplitRecipientInput>)]
 pub struct CreateToken<'info> {
     /// صاحب العملة — يدفع كل رسوم الإنشاء، وهو أيضًا صلاحية الـ mint/freeze
     /// المؤقتة (نلغيها بنفس هالتعليمة قبل ما تخلص)
@@ -58,14 +61,16 @@ pub struct CreateToken<'info> {
     )]
     pub curve_token_vault: Account<'info, TokenAccount>,
 
+    /// خزينة الرسوم المُقسَّمة (Fee Splitter) — بديل CreatorFeeVault، تدعم حتى
+    /// 5 مستفيدين بمصفوفة واحدة بدل خزينة منفصلة لكل واحد
     #[account(
         init,
         payer = creator,
-        space = CreatorFeeVault::SIZE,
-        seeds = [CREATOR_FEE_VAULT_SEED, mint.key().as_ref()],
+        space = FeeSplitter::SIZE,
+        seeds = [FEE_SPLITTER_SEED, mint.key().as_ref()],
         bump
     )]
-    pub creator_fee_vault: Account<'info, CreatorFeeVault>,
+    pub fee_splitter: Account<'info, FeeSplitter>,
 
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -77,9 +82,7 @@ pub fn handler(
     ctx: Context<CreateToken>,
     _decimals: u8,
     total_supply: u64,
-    creator_type: CreatorType,
-    social_handle: Option<String>,
-    creator_wallet: Option<Pubkey>,
+    recipients: Vec<FeeSplitRecipientInput>,
 ) -> Result<()> {
     // 1. سك كامل العرض (100%) مباشرة داخل خزينة المنحنى — بدون أي حجز أو خصم
     token::mint_to(
@@ -132,35 +135,58 @@ pub fn handler(
     bonding_curve.complete = false;
     bonding_curve.bump = ctx.bumps.bonding_curve;
 
-    // 5. تفعيل خزينة أرباح Creator (Royalty المستمرة 1%) بنفس الذرّية
-    let vault = &mut ctx.accounts.creator_fee_vault;
-    vault.mint = ctx.accounts.mint.key();
-    vault.creator_type = creator_type;
-    vault.accrued_lamports = 0;
-    vault.total_claimed_lamports = 0;
-    vault.bump = ctx.bumps.creator_fee_vault;
+    // 5. تفعيل خزينة الرسوم المُقسَّمة (Fee Splitter) — حتى 5 مستفيدين، حصة كل
+    // واحد بتتجمع بشكل مستقل تمامًا عن الباقي مع كل صفقة buy/sell
+    require!(
+        !recipients.is_empty() && recipients.len() <= MAX_FEE_SPLIT_RECIPIENTS,
+        BondingCurveError::InvalidFeeSplitRecipientCount
+    );
+    let bps_sum: u32 = recipients.iter().map(|r| r.bps as u32).sum();
+    require!(
+        bps_sum == FEE_SPLIT_TOTAL_BPS as u32,
+        BondingCurveError::InvalidFeeSplitTotal
+    );
 
-    match creator_type {
-        CreatorType::Wallet => {
-            let w = creator_wallet.ok_or(BondingCurveError::MissingCreatorIdentity)?;
-            let mut buf = [0u8; crate::state::MAX_IDENTITY_LEN];
-            buf[..32].copy_from_slice(&w.to_bytes());
-            vault.identity = buf;
-            vault.identity_len = 0;
+    let splitter = &mut ctx.accounts.fee_splitter;
+    splitter.mint = ctx.accounts.mint.key();
+    splitter.recipient_count = recipients.len() as u8;
+    splitter.bump = ctx.bumps.fee_splitter;
+
+    for (i, input) in recipients.iter().enumerate() {
+        let mut entry = FeeSplitRecipient {
+            creator_type: input.creator_type,
+            bps: input.bps,
+            ..Default::default()
+        };
+        match input.creator_type {
+            CreatorType::Wallet => {
+                let w = input
+                    .wallet
+                    .ok_or(BondingCurveError::MissingCreatorIdentity)?;
+                let mut buf = [0u8; crate::state::MAX_IDENTITY_LEN];
+                buf[..32].copy_from_slice(&w.to_bytes());
+                entry.identity = buf;
+                entry.identity_len = 0;
+            }
+            CreatorType::X | CreatorType::TikTok | CreatorType::Gmail => {
+                let handle = input
+                    .social_handle
+                    .as_ref()
+                    .ok_or(BondingCurveError::MissingCreatorIdentity)?;
+                let normalized = normalize_identity(input.creator_type, handle)?;
+                let (bytes, len) = encode_identity(&normalized);
+                entry.identity = bytes;
+                entry.identity_len = len;
+            }
         }
-        CreatorType::X | CreatorType::TikTok | CreatorType::Gmail => {
-            let handle = social_handle.ok_or(BondingCurveError::MissingCreatorIdentity)?;
-            let normalized = normalize_identity(creator_type, &handle)?;
-            let (bytes, len) = encode_identity(&normalized);
-            vault.identity = bytes;
-            vault.identity_len = len;
-        }
+        splitter.recipients[i] = entry;
     }
 
     msg!(
-        "✅ Token {} created atomically: 100% supply ({}) live on the curve, mint+freeze revoked, creator fee vault linked",
+        "✅ Token {} created atomically: 100% supply ({}) live on the curve, mint+freeze revoked, fee splitter linked ({} recipients)",
         bonding_curve.mint,
-        total_supply
+        total_supply,
+        splitter.recipient_count
     );
 
     Ok(())

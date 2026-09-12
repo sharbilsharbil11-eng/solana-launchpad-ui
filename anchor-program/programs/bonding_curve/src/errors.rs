@@ -61,4 +61,13 @@ pub enum BondingCurveError {
 
     #[msg("لازم تحدد إما مقبض/إيميل اجتماعي (لأنواع X/TikTok/Gmail) أو عنوان محفظة (لنوع Wallet)")]
     MissingCreatorIdentity,
+
+    #[msg("لازم يكون في مستفيد واحد على الأقل، وبحد أقصى 5 مستفيدين بمصفوفة توزيع الرسوم")]
+    InvalidFeeSplitRecipientCount,
+
+    #[msg("مجموع نسب مصفوفة توزيع الرسوم (bps) لازم يساوي بالضبط 10000 (100%)")]
+    InvalidFeeSplitTotal,
+
+    #[msg("رقم المستفيد المحدد غير موجود بمصفوفة توزيع الرسوم لهذه العملة")]
+    InvalidFeeSplitRecipientIndex,
 }

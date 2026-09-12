@@ -36,14 +36,15 @@ console.log('discriminator matches [102,6,61,18,1,218,235,234]:',
 console.log('solAmount round-trips:', buyBuf.readBigUInt64LE(8) === 1_000_000_000n);
 console.log('minTokensOut round-trips:', buyBuf.readBigUInt64LE(16) === 12345n);
 
-console.log('\n=== 3. create_token instruction encoding (Wallet creator type, Option<T> handling) ===');
+console.log('\n=== 3. create_token instruction encoding (Vec<FeeSplitRecipientInput>, two recipients) ===');
 const dummyWallet = Keypair.generate().publicKey;
 const createBuf = coder.instruction.encode('create_token', {
   decimals: 6,
   totalSupply: new BN('1073000000000000'),
-  creatorType: { wallet: {} }, // Anchor enum encoding: object keyed by the exact IDL variant name
-  socialHandle: null,
-  creatorWallet: dummyWallet,
+  recipients: [
+    { creatorType: { wallet: {} }, socialHandle: null, wallet: dummyWallet, bps: 6000 },
+    { creatorType: { x: {} }, socialHandle: 'CreatorX', wallet: null, bps: 4000 },
+  ],
 });
 console.log('bytes length:', createBuf.length);
 console.log('discriminator matches [84,52,204,228,24,140,234,75]:',
@@ -53,22 +54,42 @@ console.log('decimals byte:', createBuf.readUInt8(offset), '=== 6:', createBuf.r
 offset += 1;
 console.log('totalSupply:', createBuf.readBigUInt64LE(offset) === 1_073_000_000_000_000n);
 offset += 8;
-console.log('creatorType enum tag byte (0 = Wallet):', createBuf.readUInt8(offset), '=== 0:', createBuf.readUInt8(offset) === 0);
+console.log('recipients Vec length (u32 = 2):', createBuf.readUInt32LE(offset), '=== 2:', createBuf.readUInt32LE(offset) === 2);
+offset += 4;
+console.log('recipient[0] creatorType tag (0 = Wallet):', createBuf.readUInt8(offset) === 0);
 offset += 1;
-console.log('socialHandle Option tag (0 = None):', createBuf.readUInt8(offset), '=== 0:', createBuf.readUInt8(offset) === 0);
+console.log('recipient[0] socialHandle Option tag (0 = None):', createBuf.readUInt8(offset) === 0);
 offset += 1;
-console.log('creatorWallet Option tag (1 = Some):', createBuf.readUInt8(offset), '=== 1:', createBuf.readUInt8(offset) === 1);
+console.log('recipient[0] wallet Option tag (1 = Some):', createBuf.readUInt8(offset) === 1);
 offset += 1;
 const walletBytes = createBuf.slice(offset, offset + 32);
-console.log('creatorWallet pubkey round-trips:', new PublicKey(walletBytes).equals(dummyWallet));
+console.log('recipient[0] wallet pubkey round-trips:', new PublicKey(walletBytes).equals(dummyWallet));
+offset += 32;
+console.log('recipient[0] bps (u16 LE = 6000):', createBuf.readUInt16LE(offset) === 6000);
+offset += 2;
+console.log('recipient[1] creatorType tag (1 = X):', createBuf.readUInt8(offset) === 1);
+offset += 1;
+console.log('recipient[1] socialHandle Option tag (1 = Some):', createBuf.readUInt8(offset) === 1);
+offset += 1;
+const handleLen = createBuf.readUInt32LE(offset);
+offset += 4;
+const handle = createBuf.slice(offset, offset + handleLen).toString('utf8');
+console.log('recipient[1] socialHandle round-trips ("CreatorX"):', handle === 'CreatorX');
+offset += handleLen;
+console.log('recipient[1] wallet Option tag (0 = None):', createBuf.readUInt8(offset) === 0);
+offset += 1;
+console.log('recipient[1] bps (u16 LE = 4000):', createBuf.readUInt16LE(offset) === 4000);
+offset += 2;
+console.log('total bytes consumed matches buffer length:', offset === createBuf.length);
 
-console.log('\n=== 4. claim_creator_fees_wallet (no args) ===');
-const claimBuf = coder.instruction.encode('claim_creator_fees_wallet', {});
-console.log('length (discriminator only, 8 bytes):', claimBuf.length === 8);
-console.log('discriminator matches [91,168,209,79,139,75,175,59]:',
-  claimBuf.slice(0, 8).equals(Buffer.from([91,168,209,79,139,75,175,59])));
+console.log('\n=== 4. claim_fee_split_wallet (recipientIndex: u8) ===');
+const claimBuf = coder.instruction.encode('claim_fee_split_wallet', { recipientIndex: 1 });
+console.log('length (discriminator + 1 byte = 9):', claimBuf.length === 9);
+console.log('discriminator matches [109,193,106,20,185,128,129,21]:',
+  claimBuf.slice(0, 8).equals(Buffer.from([109,193,106,20,185,128,129,21])));
+console.log('recipientIndex byte === 1:', claimBuf.readUInt8(8) === 1);
 
-console.log('\n=== 5. Account decoding round-trip (Global, BondingCurve, CreatorFeeVault) ===');
+console.log('\n=== 5. Account decoding round-trip (Global, BondingCurve, FeeSplitter) ===');
 // Build a fake Global account buffer exactly as the Rust struct would lay it out:
 // 8-byte discriminator + authority(32) + fee_recipient(32) + oracle_authority(32) + fee_bps(8) + creator_fee_bps(8) + bump(1)
 const authority = Keypair.generate().publicKey;
@@ -91,22 +112,45 @@ console.log('Global.feeBasisPoints === 50:', decodedGlobal.feeBasisPoints.toStri
 console.log('Global.creatorFeeBasisPoints === 50:', decodedGlobal.creatorFeeBasisPoints.toString() === '50');
 console.log('Global.bump === 7:', decodedGlobal.bump === 7);
 
-// CreatorFeeVault with creatorType Wallet + identity = 32-byte pubkey padded to 64
-const identity = Buffer.alloc(64);
-authority.toBuffer().copy(identity, 0);
-const vaultBuf = Buffer.concat([
-  Buffer.from([21, 14, 215, 247, 197, 137, 200, 121]),
+// FeeSplitter with 2 active recipients (out of the fixed 5-slot array) —
+// recipient[0] Wallet (identity = 32-byte pubkey padded to 64), recipient[1]
+// X (identity = UTF-8 handle padded to 64), recipients[2..4] all-zero padding.
+function encodeRecipient({ tag, identity64, identityLen, bps, accrued, claimed }) {
+  return Buffer.concat([
+    Buffer.from([tag]),
+    identity64,
+    Buffer.from([identityLen]),
+    (() => { const b = Buffer.alloc(2); b.writeUInt16LE(bps); return b; })(),
+    (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(accrued)); return b; })(),
+    (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(claimed)); return b; })(),
+  ]);
+}
+const walletIdentity = Buffer.alloc(64);
+authority.toBuffer().copy(walletIdentity, 0);
+const xIdentity = Buffer.alloc(64);
+Buffer.from('CreatorX', 'utf8').copy(xIdentity, 0);
+const emptyIdentity = Buffer.alloc(64);
+const emptyRecipient = encodeRecipient({ tag: 0, identity64: emptyIdentity, identityLen: 0, bps: 0, accrued: 0, claimed: 0 });
+const splitterBuf = Buffer.concat([
+  Buffer.from([167, 3, 25, 27, 195, 153, 169, 183]),
   authority.toBuffer(), // mint (reused for test)
-  Buffer.from([0]), // CreatorType::Wallet tag
-  identity,
-  Buffer.from([0]), // identity_len (unused for Wallet)
-  (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(123456789n); return b; })(), // accrued_lamports
-  (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(0n); return b; })(), // total_claimed_lamports
+  Buffer.from([2]), // recipient_count
+  encodeRecipient({ tag: 0, identity64: walletIdentity, identityLen: 0, bps: 6000, accrued: 123456789, claimed: 0 }),
+  encodeRecipient({ tag: 1, identity64: xIdentity, identityLen: 8, bps: 4000, accrued: 555, claimed: 100 }),
+  emptyRecipient,
+  emptyRecipient,
+  emptyRecipient,
   Buffer.from([9]), // bump
 ]);
-const decodedVault = coder.accounts.decode('CreatorFeeVault', vaultBuf);
-console.log('CreatorFeeVault.creatorType is Wallet:', 'wallet' in decodedVault.creatorType);
-console.log('CreatorFeeVault.accruedLamports === 123456789:', decodedVault.accruedLamports.toString() === '123456789');
-console.log('CreatorFeeVault.bump === 9:', decodedVault.bump === 9);
+const decodedSplitter = coder.accounts.decode('FeeSplitter', splitterBuf);
+console.log('FeeSplitter.recipientCount === 2:', decodedSplitter.recipientCount === 2);
+console.log('FeeSplitter.recipients[0].creatorType is Wallet:', 'wallet' in decodedSplitter.recipients[0].creatorType);
+console.log('FeeSplitter.recipients[0].bps === 6000:', decodedSplitter.recipients[0].bps === 6000);
+console.log('FeeSplitter.recipients[0].accruedLamports === 123456789:', decodedSplitter.recipients[0].accruedLamports.toString() === '123456789');
+console.log('FeeSplitter.recipients[1].creatorType is X:', 'x' in decodedSplitter.recipients[1].creatorType);
+console.log('FeeSplitter.recipients[1].bps === 4000:', decodedSplitter.recipients[1].bps === 4000);
+console.log('FeeSplitter.recipients[1].totalClaimedLamports === 100:', decodedSplitter.recipients[1].totalClaimedLamports.toString() === '100');
+console.log('FeeSplitter.recipients.length === 5 (fixed-size array):', decodedSplitter.recipients.length === 5);
+console.log('FeeSplitter.bump === 9:', decodedSplitter.bump === 9);
 
 console.log('\nAll checks printed above — every one must read true.');

@@ -33,19 +33,33 @@ const DISCRIMINATOR = {
   create_token: [84, 52, 204, 228, 24, 140, 234, 75],
   buy: [102, 6, 61, 18, 1, 218, 235, 234],
   sell: [51, 230, 133, 164, 1, 127, 131, 173],
-  claim_creator_fees_wallet: [91, 168, 209, 79, 139, 75, 175, 59],
+  claim_fee_split_wallet: [109, 193, 106, 20, 185, 128, 129, 21],
 };
 const ACCOUNT_DISCRIMINATOR = {
   Global: [167, 232, 232, 177, 200, 108, 114, 127],
   BondingCurve: [23, 183, 248, 55, 96, 216, 172, 96],
-  CreatorFeeVault: [21, 14, 215, 247, 197, 137, 200, 121],
+  FeeSplitter: [167, 3, 25, 27, 195, 153, 169, 183],
 };
+const MAX_FEE_SPLIT_RECIPIENTS = 5;
+const FEE_SPLIT_TOTAL_BPS = 10000; // matches anchor-program/src/state.rs FEE_SPLIT_TOTAL_BPS
 
 // ── Tiny borsh-compatible byte writer ──
 class ByteWriter {
   constructor() { this.chunks = []; }
   bytes(arr) { this.chunks.push(Uint8Array.from(arr)); return this; }
   u8(n) { return this.bytes([n & 0xff]); }
+  u16(n) {
+    const buf = new Uint8Array(2);
+    new DataView(buf.buffer).setUint16(0, n, true);
+    this.chunks.push(buf);
+    return this;
+  }
+  u32(n) {
+    const buf = new Uint8Array(4);
+    new DataView(buf.buffer).setUint32(0, n, true);
+    this.chunks.push(buf);
+    return this;
+  }
   u64(n) {
     const buf = new Uint8Array(8);
     let big = typeof n === 'bigint' ? n : BigInt(Math.trunc(n));
@@ -93,9 +107,9 @@ function getBondingCurvePda(mint) {
     BONDING_CURVE_PROGRAM_ID
   );
 }
-function getCreatorFeeVaultPda(mint) {
+function getFeeSplitterPda(mint) {
   return solanaWeb3.PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode('creator-fee-vault'), mint.toBytes()],
+    [new TextEncoder().encode('fee-splitter'), mint.toBytes()],
     BONDING_CURVE_PROGRAM_ID
   );
 }
@@ -114,25 +128,42 @@ function keyMeta(pubkey, { signer = false, writable = false } = {}) {
 // ── Instructions ──
 
 /** Atomic launch: mint 100% of supply onto the curve, revoke mint/freeze authority,
- * activate the bonding curve, and link the creator fee vault — one instruction. */
-function buildCreateTokenInstruction({ creator, mint, totalSupply, decimals, creatorType, socialHandle, creatorWallet }) {
+ * activate the bonding curve, and link the fee splitter (up to
+ * MAX_FEE_SPLIT_RECIPIENTS creator-side beneficiaries, each with their own
+ * bps share and independently claimable balance) — one instruction.
+ * `recipients`: [{ creatorType: {wallet:{}}|{x:{}}|..., socialHandle, wallet, bps }],
+ * bps must sum to exactly FEE_SPLIT_TOTAL_BPS (10000 = 100% of the creator's
+ * fee share — not of total trade volume). */
+function buildCreateTokenInstruction({ creator, mint, totalSupply, decimals, recipients }) {
   const [bondingCurve] = getBondingCurvePda(mint);
-  const [creatorFeeVault] = getCreatorFeeVaultPda(mint);
+  const [feeSplitter] = getFeeSplitterPda(mint);
   const curveTokenVault = getAssociatedTokenAddress(mint, bondingCurve);
+
+  if (!recipients || recipients.length === 0 || recipients.length > MAX_FEE_SPLIT_RECIPIENTS) {
+    throw new Error(`recipients must have 1 to ${MAX_FEE_SPLIT_RECIPIENTS} entries`);
+  }
+  const bpsSum = recipients.reduce((sum, r) => sum + r.bps, 0);
+  if (bpsSum !== FEE_SPLIT_TOTAL_BPS) {
+    throw new Error(`recipients' bps must sum to ${FEE_SPLIT_TOTAL_BPS} (got ${bpsSum})`);
+  }
 
   const w = new ByteWriter().bytes(DISCRIMINATOR.create_token);
   w.u8(decimals);
   w.u64(totalSupply);
-  encodeCreatorType(w, creatorType);
-  if (socialHandle) w.optionSome((w2) => w2.string(socialHandle)); else w.optionNone();
-  if (creatorWallet) w.optionSome((w2) => w2.pubkey(creatorWallet)); else w.optionNone();
+  w.u32(recipients.length); // Vec<FeeSplitRecipientInput> length prefix
+  for (const r of recipients) {
+    encodeCreatorType(w, r.creatorType);
+    if (r.socialHandle) w.optionSome((w2) => w2.string(r.socialHandle)); else w.optionNone();
+    if (r.wallet) w.optionSome((w2) => w2.pubkey(r.wallet)); else w.optionNone();
+    w.u16(r.bps);
+  }
 
   const keys = [
     keyMeta(creator, { signer: true, writable: true }),
     keyMeta(mint, { signer: true, writable: true }),
     keyMeta(bondingCurve, { writable: true }),
     keyMeta(curveTokenVault, { writable: true }),
-    keyMeta(creatorFeeVault, { writable: true }),
+    keyMeta(feeSplitter, { writable: true }),
     keyMeta(TOKEN_PROGRAM_ID),
     keyMeta(ASSOCIATED_TOKEN_PROGRAM_ID),
     keyMeta(solanaWeb3.SystemProgram.programId),
@@ -144,7 +175,7 @@ function buildCreateTokenInstruction({ creator, mint, totalSupply, decimals, cre
 function buildBuyInstruction({ buyer, mint, feeRecipient, solAmountLamports, minTokensOut }) {
   const [global] = getGlobalPda();
   const [bondingCurve] = getBondingCurvePda(mint);
-  const [creatorFeeVault] = getCreatorFeeVaultPda(mint);
+  const [feeSplitter] = getFeeSplitterPda(mint);
   const curveTokenVault = getAssociatedTokenAddress(mint, bondingCurve);
   const buyerTokenAccount = getAssociatedTokenAddress(mint, buyer);
 
@@ -158,7 +189,7 @@ function buildBuyInstruction({ buyer, mint, feeRecipient, solAmountLamports, min
     keyMeta(curveTokenVault, { writable: true }),
     keyMeta(buyerTokenAccount, { writable: true }),
     keyMeta(feeRecipient, { writable: true }),
-    keyMeta(creatorFeeVault, { writable: true }),
+    keyMeta(feeSplitter, { writable: true }),
     keyMeta(TOKEN_PROGRAM_ID),
     keyMeta(ASSOCIATED_TOKEN_PROGRAM_ID),
     keyMeta(solanaWeb3.SystemProgram.programId),
@@ -169,7 +200,7 @@ function buildBuyInstruction({ buyer, mint, feeRecipient, solAmountLamports, min
 function buildSellInstruction({ seller, mint, feeRecipient, tokenAmount, minSolOutLamports }) {
   const [global] = getGlobalPda();
   const [bondingCurve] = getBondingCurvePda(mint);
-  const [creatorFeeVault] = getCreatorFeeVaultPda(mint);
+  const [feeSplitter] = getFeeSplitterPda(mint);
   const curveTokenVault = getAssociatedTokenAddress(mint, bondingCurve);
   const sellerTokenAccount = getAssociatedTokenAddress(mint, seller);
 
@@ -183,20 +214,22 @@ function buildSellInstruction({ seller, mint, feeRecipient, tokenAmount, minSolO
     keyMeta(curveTokenVault, { writable: true }),
     keyMeta(sellerTokenAccount, { writable: true }),
     keyMeta(feeRecipient, { writable: true }),
-    keyMeta(creatorFeeVault, { writable: true }),
+    keyMeta(feeSplitter, { writable: true }),
     keyMeta(TOKEN_PROGRAM_ID),
     keyMeta(solanaWeb3.SystemProgram.programId),
   ];
   return new solanaWeb3.TransactionInstruction({ programId: BONDING_CURVE_PROGRAM_ID, keys, data: w.toBuffer() });
 }
 
-/** Trustless direct claim — creator_type must be Wallet. No oracle. */
-function buildClaimCreatorFeesWalletInstruction({ recipient, mint }) {
-  const [creatorFeeVault] = getCreatorFeeVaultPda(mint);
-  const w = new ByteWriter().bytes(DISCRIMINATOR.claim_creator_fees_wallet);
+/** Trustless direct claim of one recipient's share — creator_type at that
+ * index must be Wallet. No oracle. recipientIndex is this beneficiary's
+ * position (0-4) in the fee splitter's recipients array. */
+function buildClaimFeeSplitWalletInstruction({ recipient, mint, recipientIndex }) {
+  const [feeSplitter] = getFeeSplitterPda(mint);
+  const w = new ByteWriter().bytes(DISCRIMINATOR.claim_fee_split_wallet).u8(recipientIndex);
   const keys = [
     keyMeta(recipient, { signer: true, writable: true }),
-    keyMeta(creatorFeeVault, { writable: true }),
+    keyMeta(feeSplitter, { writable: true }),
   ];
   return new solanaWeb3.TransactionInstruction({ programId: BONDING_CURVE_PROGRAM_ID, keys, data: w.toBuffer() });
 }
@@ -236,17 +269,15 @@ function decodeBondingCurve(data) {
 }
 
 const CREATOR_TYPE_FROM_TAG = ['wallet', 'x', 'tikTok', 'gmail'];
+const FEE_SPLIT_RECIPIENT_SIZE = 1 + 64 + 1 + 2 + 8 + 8; // creatorType + identity + identityLen + bps + accrued + claimed
 
-function decodeCreatorFeeVault(data) {
-  const b = new Uint8Array(data);
-  let o = 8;
-  const mint = new solanaWeb3.PublicKey(b.slice(o, o + 32)); o += 32;
+function decodeFeeSplitRecipient(b, o) {
   const creatorType = CREATOR_TYPE_FROM_TAG[b[o]]; o += 1;
   const identity = b.slice(o, o + 64); o += 64;
   const identityLen = b[o]; o += 1;
+  const bps = b[o] | (b[o + 1] << 8); o += 2;
   const accruedLamports = readU64LE(b, o); o += 8;
   const totalClaimedLamports = readU64LE(b, o); o += 8;
-  const bump = b[o];
   let identityPubkey = null;
   let identityString = null;
   if (creatorType === 'wallet') {
@@ -254,7 +285,21 @@ function decodeCreatorFeeVault(data) {
   } else {
     identityString = new TextDecoder().decode(identity.slice(0, identityLen));
   }
-  return { mint, creatorType, identityPubkey, identityString, accruedLamports, totalClaimedLamports, bump };
+  return { creatorType, identityPubkey, identityString, bps, accruedLamports, totalClaimedLamports };
+}
+
+function decodeFeeSplitter(data) {
+  const b = new Uint8Array(data);
+  let o = 8;
+  const mint = new solanaWeb3.PublicKey(b.slice(o, o + 32)); o += 32;
+  const recipientCount = b[o]; o += 1;
+  const recipients = [];
+  for (let i = 0; i < MAX_FEE_SPLIT_RECIPIENTS; i++) {
+    recipients.push(decodeFeeSplitRecipient(b, o));
+    o += FEE_SPLIT_RECIPIENT_SIZE;
+  }
+  const bump = b[o];
+  return { mint, recipientCount, recipients: recipients.slice(0, recipientCount), bump };
 }
 
 async function fetchDecodedAccount(connection, address, expectedDiscriminatorName, decodeFn) {
@@ -276,9 +321,9 @@ function fetchBondingCurve(connection, mint) {
   const [bc] = getBondingCurvePda(mint);
   return fetchDecodedAccount(connection, bc, 'BondingCurve', decodeBondingCurve);
 }
-function fetchCreatorFeeVault(connection, mint) {
-  const [cfv] = getCreatorFeeVaultPda(mint);
-  return fetchDecodedAccount(connection, cfv, 'CreatorFeeVault', decodeCreatorFeeVault);
+function fetchFeeSplitter(connection, mint) {
+  const [fs] = getFeeSplitterPda(mint);
+  return fetchDecodedAccount(connection, fs, 'FeeSplitter', decodeFeeSplitter);
 }
 
 // ── High-level actions, signed by the internal Velo wallet (currentWallet from app.js) ──
@@ -304,20 +349,20 @@ async function createTokenOnChain({ totalSupply = DEFAULT_TOTAL_SUPPLY, initialB
   const mintKeypair = solanaWeb3.Keypair.generate();
   const totalSupplyRaw = BigInt(totalSupply) * 10n ** BigInt(TOKEN_DECIMALS);
 
-  // Creator fee vault identity: either this wallet (default, and the only
-  // type claim_creator_fees_wallet can pay out today), or an X handle —
-  // the program accepts CreatorType::X with no verification of who
-  // actually owns that handle, so its fees just accrue safely until a
-  // real oracle-verified claim path exists (see claimCreatorFeesWalletOnChain's
-  // guard below).
+  // Single-recipient fee splitter (100% of the creator's share): either this
+  // wallet (default, and the only type claim_fee_split_wallet can pay out
+  // today), or an X handle — the program accepts CreatorType::X with no
+  // verification of who actually owns that handle, so its fees just accrue
+  // safely in the splitter until a real oracle-verified claim path exists.
+  const recipients = xHandle
+    ? [{ creatorType: { x: {} }, socialHandle: xHandle, wallet: null, bps: FEE_SPLIT_TOTAL_BPS }]
+    : [{ creatorType: { wallet: {} }, socialHandle: null, wallet: currentWallet.publicKey, bps: FEE_SPLIT_TOTAL_BPS }];
   const createIx = buildCreateTokenInstruction({
     creator: currentWallet.publicKey,
     mint: mintKeypair.publicKey,
     totalSupply: totalSupplyRaw,
     decimals: TOKEN_DECIMALS,
-    creatorType: xHandle ? { x: {} } : { wallet: {} },
-    socialHandle: xHandle || null,
-    creatorWallet: xHandle ? null : currentWallet.publicKey,
+    recipients,
   });
 
   const instructions = [createIx];
@@ -395,18 +440,24 @@ async function sellOnChain({ mint, tokenAmount, slippageBps = 500 }) {
   return { signature, estimatedSolOutAfterFee };
 }
 
-async function claimCreatorFeesWalletOnChain({ mint }) {
+/** Claims one recipient's share of a token's fee splitter (default: index 0,
+ * the common single-recipient case from createTokenOnChain). Only works for
+ * Wallet-type recipients — social (X/TikTok/Gmail) recipients need the
+ * oracle-verified claim path, not built yet. */
+async function claimFeeSplitWalletOnChain({ mint, recipientIndex = 0 }) {
   const connection = new solanaWeb3.Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
   const mintPubkey = new solanaWeb3.PublicKey(mint);
-  const vault = await fetchCreatorFeeVault(connection, mintPubkey);
-  if (!vault) throw new Error('No creator fee vault for this token.');
-  if (vault.creatorType !== 'wallet') throw new Error('This vault is not a Wallet-type vault — social claiming isn\'t wired up yet.');
-  if (!vault.identityPubkey.equals(currentWallet.publicKey)) throw new Error('This vault belongs to a different wallet.');
-  if (vault.accruedLamports === 0n) throw new Error('Nothing accrued to claim yet.');
+  const splitter = await fetchFeeSplitter(connection, mintPubkey);
+  if (!splitter) throw new Error('No fee splitter for this token.');
+  if (recipientIndex >= splitter.recipientCount) throw new Error('No such recipient on this token.');
+  const entry = splitter.recipients[recipientIndex];
+  if (entry.creatorType !== 'wallet') throw new Error('This recipient is not a Wallet-type recipient — social claiming isn\'t wired up yet.');
+  if (!entry.identityPubkey.equals(currentWallet.publicKey)) throw new Error('This recipient slot belongs to a different wallet.');
+  if (entry.accruedLamports === 0n) throw new Error('Nothing accrued to claim yet.');
 
-  const ix = buildClaimCreatorFeesWalletInstruction({ recipient: currentWallet.publicKey, mint: mintPubkey });
+  const ix = buildClaimFeeSplitWalletInstruction({ recipient: currentWallet.publicKey, mint: mintPubkey, recipientIndex });
   const signature = await sendVeloTransaction(connection, [ix]);
-  return { signature, claimedLamports: vault.accruedLamports };
+  return { signature, claimedLamports: entry.accruedLamports };
 }
 
 // ── Real trade history & holders, read straight off-chain — no indexer.

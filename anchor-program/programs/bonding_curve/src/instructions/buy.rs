@@ -1,6 +1,6 @@
 use crate::constants::*;
 use crate::errors::BondingCurveError;
-use crate::state::{BondingCurve, CreatorFeeVault, Global};
+use crate::state::{BondingCurve, FeeSplitter, Global};
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
@@ -38,15 +38,16 @@ pub struct Buy<'info> {
     #[account(mut, constraint = fee_recipient.key() == global.fee_recipient)]
     pub fee_recipient: UncheckedAccount<'info>,
 
-    /// خزينة أرباح صانع العملة (Creator Fee Vault) — الـ Creator Fee يتجمّع هنا كـ escrow
-    /// بدل أي تحويل مباشر لمحفظة؛ محدا يسحبها إلا صاحب حساب X الموثّق عبر claim_creator_fees.
-    /// لازم تكون منشأة مسبقًا عبر init_creator_fee_vault وقت إنشاء العملة.
+    /// خزينة الرسوم المُقسَّمة (Fee Splitter) — الـ Creator Fee يتجمّع هنا كـ escrow
+    /// بدل أي تحويل مباشر لمحفظة، ويتوزّع داخليًا على حتى 5 مستفيدين حسب حصة كل
+    /// واحد (bps). محدا يسحب حصته إلا هو، عبر claim_fee_split_wallet (أو Oracle
+    /// لاحقًا للأنواع الاجتماعية). لازم تكون منشأة مسبقًا عبر create_token.
     #[account(
         mut,
-        seeds = [CREATOR_FEE_VAULT_SEED, mint.key().as_ref()],
-        bump = creator_fee_vault.bump,
+        seeds = [FEE_SPLITTER_SEED, mint.key().as_ref()],
+        bump = fee_splitter.bump,
     )]
-    pub creator_fee_vault: Account<'info, CreatorFeeVault>,
+    pub fee_splitter: Account<'info, FeeSplitter>,
 
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
@@ -93,23 +94,20 @@ pub fn handler(ctx: Context<Buy>, sol_amount: u64, min_tokens_out: u64) -> Resul
         )?;
     }
 
-    // 3. Creator Fee → خزينة الـ escrow (مش تحويل مباشر) — تتراكم لحد ما صاحب X الحقيقي يطالب فيها
+    // 3. Creator Fee → خزينة الـ escrow (مش تحويل مباشر) — تتوزّع فورًا على كل
+    // مستفيدي مصفوفة الـ Fee Splitter حسب حصة كل واحد، وتتراكم لحد ما يطالب فيها
     if result.creator_fee > 0 {
         system_program::transfer(
             CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
                 system_program::Transfer {
                     from: ctx.accounts.buyer.to_account_info(),
-                    to: ctx.accounts.creator_fee_vault.to_account_info(),
+                    to: ctx.accounts.fee_splitter.to_account_info(),
                 },
             ),
             result.creator_fee,
         )?;
-        let vault = &mut ctx.accounts.creator_fee_vault;
-        vault.accrued_lamports = vault
-            .accrued_lamports
-            .checked_add(result.creator_fee)
-            .ok_or(BondingCurveError::MathOverflow)?;
+        ctx.accounts.fee_splitter.distribute(result.creator_fee)?;
     }
 
     // 4. تحويل التوكن من خزينة المنحنى إلى محفظة المشتري (يوقّع PDA المنحنى عبر seeds)

@@ -104,25 +104,28 @@ async function initRealTokenPage(mintStr) {
   loadCreatorFeeIdentity(connection, mintPubkey);
 }
 
-// Shows who the creator fee vault actually pays — either this token's
-// creator wallet, or a linked X handle (self-declared at creation, not
-// verified — see the note on the Create page). Real on-chain read either
-// way, not inferred from localStorage.
+// Shows who the fee splitter's first recipient actually pays — either this
+// token's creator wallet, or a linked X handle (self-declared at creation,
+// not verified — see the note on the Create page). Real on-chain read
+// either way, not inferred from localStorage. (Today create.html always
+// writes a single-recipient splitter, so index 0 is the whole picture; a
+// multi-recipient creation UI would need to render the rest of the array.)
 async function loadCreatorFeeIdentity(connection, mintPubkey) {
   const el = document.getElementById('infoCreator');
   if (!el) return;
-  let vault;
+  let splitter;
   try {
-    vault = await fetchCreatorFeeVault(connection, mintPubkey);
+    splitter = await fetchFeeSplitter(connection, mintPubkey);
   } catch (err) {
-    console.error('Failed to load creator fee vault:', err);
+    console.error('Failed to load fee splitter:', err);
     return;
   }
-  if (!vault) return;
-  if (vault.creatorType === 'wallet' && vault.identityPubkey) {
-    el.textContent = shortenAddress(vault.identityPubkey.toBase58());
-  } else if (vault.identityString) {
-    el.innerHTML = `🐦 @${escapeHtml(vault.identityString)} <span style="color:var(--text-dim);font-weight:400;">(unverified)</span>`;
+  if (!splitter || splitter.recipientCount === 0) return;
+  const entry = splitter.recipients[0];
+  if (entry.creatorType === 'wallet' && entry.identityPubkey) {
+    el.textContent = shortenAddress(entry.identityPubkey.toBase58());
+  } else if (entry.identityString) {
+    el.innerHTML = `🐦 @${escapeHtml(entry.identityString)} <span style="color:var(--text-dim);font-weight:400;">(unverified)</span>`;
   }
 }
 

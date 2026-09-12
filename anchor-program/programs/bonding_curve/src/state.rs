@@ -1,3 +1,4 @@
+use crate::errors::BondingCurveError;
 use anchor_lang::prelude::*;
 
 #[account]
@@ -142,4 +143,121 @@ impl CreatorFeeVault {
         buf.copy_from_slice(&self.identity[..32]);
         Pubkey::new_from_array(buf)
     }
+}
+
+/// خزينة أرباح مُقسَّمة على عدة مستفيدين (Fee Splitter) — النسخة الأحدث من
+/// CreatorFeeVault، تدعم حتى 5 مستفيدين بدل واحد بس. تُستخدم من create_token
+/// (الحالي، الذري) وbuy/sell بدل CreatorFeeVault القديمة أعلاه. كل مستفيد له
+/// حصته الخاصة (بالـ basis points من نصيب الـ Creator من الرسوم، 10_000 = 100%)
+/// وأرباحه المتراكمة الخاصة به — يسحب كل واحد حصته باستقلالية تامة عن الباقي،
+/// بنفس منطق الثقة السابق حسب النوع:
+///   - Wallet: مطالبة مباشرة trustless (claim_fee_split_wallet)
+///   - X / TikTok / Gmail: تتطلب توقيع Oracle (غير مبني بعد — بانتظار تكامل X API حقيقي)
+pub const MAX_FEE_SPLIT_RECIPIENTS: usize = 5;
+pub const FEE_SPLIT_TOTAL_BPS: u16 = 10_000; // 100% من نصيب الـ Creator (مش من إجمالي حجم التداول)
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FeeSplitRecipient {
+    /// نوع هوية هذا المستفيد — نفس ترميز CreatorType أعلاه
+    pub creator_type: CreatorType,
+    /// الهوية، بنفس ترميز CreatorFeeVault.identity (محفظة أو يوزر/إيميل مطبَّع)
+    pub identity: [u8; MAX_IDENTITY_LEN],
+    pub identity_len: u8,
+    /// حصة هذا المستفيد من نصيب الـ Creator، بالـ basis points (10_000 = 100%).
+    /// مجموع bps كل المستفيدين بنفس FeeSplitter لازم يساوي بالضبط FEE_SPLIT_TOTAL_BPS.
+    pub bps: u16,
+    /// الأرباح المتراكمة غير المسحوبة بعد لهذا المستفيد تحديدًا (بوحدة lamports)
+    pub accrued_lamports: u64,
+    /// إجمالي ما تمت المطالبة به تاريخيًا لهذا المستفيد (للعرض/الإحصائيات فقط)
+    pub total_claimed_lamports: u64,
+}
+
+impl FeeSplitRecipient {
+    pub const SIZE: usize = 1 + MAX_IDENTITY_LEN + 1 + 2 + 8 + 8;
+
+    pub fn identity_string(&self) -> String {
+        String::from_utf8_lossy(&self.identity[..self.identity_len as usize]).to_string()
+    }
+
+    pub fn identity_pubkey(&self) -> Pubkey {
+        let mut buf = [0u8; 32];
+        buf.copy_from_slice(&self.identity[..32]);
+        Pubkey::new_from_array(buf)
+    }
+}
+
+impl Default for FeeSplitRecipient {
+    fn default() -> Self {
+        Self {
+            creator_type: CreatorType::Wallet,
+            identity: [0u8; MAX_IDENTITY_LEN],
+            identity_len: 0,
+            bps: 0,
+            accrued_lamports: 0,
+            total_claimed_lamports: 0,
+        }
+    }
+}
+
+#[account]
+pub struct FeeSplitter {
+    /// عنوان الـ mint المرتبط بهذه الخزينة — واحدة لكل mint، بديل CreatorFeeVault
+    pub mint: Pubkey,
+    /// عدد المستفيدين الفعليين المستخدَمين من المصفوفة أدناه (1 إلى MAX_FEE_SPLIT_RECIPIENTS)
+    pub recipient_count: u8,
+    /// مصفوفة ثابتة الحجم (Fee Splitter Array) — المدخلات الفارغة (index >= recipient_count)
+    /// تبقى بقيمها الافتراضية (bps = 0) ويتم تجاهلها بكل مكان
+    pub recipients: [FeeSplitRecipient; MAX_FEE_SPLIT_RECIPIENTS],
+    pub bump: u8,
+}
+
+impl FeeSplitter {
+    pub const SIZE: usize =
+        8 + 32 + 1 + (FeeSplitRecipient::SIZE * MAX_FEE_SPLIT_RECIPIENTS) + 1;
+
+    /// يوزّع مبلغ لامبورت واحد (نصيب الـ Creator من رسوم صفقة buy/sell) على كل
+    /// مستفيدي المصفوفة حسب حصة كل واحد (bps)، ويضيف باقي القسمة الصحيحة
+    /// (rounding remainder) لأول مستفيد — بهيك مجموع ما يتراكم لكل المستفيدين
+    /// يساوي amount بالضبط، ما في ولا لامبورت واحد بيضيع أو ينخلق من فراغ.
+    pub fn distribute(&mut self, amount: u64) -> Result<()> {
+        let count = self.recipient_count as usize;
+        require!(count > 0, BondingCurveError::InvalidFeeSplitRecipientCount);
+
+        let mut distributed: u64 = 0;
+        for i in 0..count {
+            let share = (amount as u128)
+                .checked_mul(self.recipients[i].bps as u128)
+                .ok_or(BondingCurveError::MathOverflow)?
+                .checked_div(FEE_SPLIT_TOTAL_BPS as u128)
+                .ok_or(BondingCurveError::MathOverflow)? as u64;
+            self.recipients[i].accrued_lamports = self.recipients[i]
+                .accrued_lamports
+                .checked_add(share)
+                .ok_or(BondingCurveError::MathOverflow)?;
+            distributed = distributed
+                .checked_add(share)
+                .ok_or(BondingCurveError::MathOverflow)?;
+        }
+
+        let remainder = amount
+            .checked_sub(distributed)
+            .ok_or(BondingCurveError::MathOverflow)?;
+        if remainder > 0 {
+            self.recipients[0].accrued_lamports = self.recipients[0]
+                .accrued_lamports
+                .checked_add(remainder)
+                .ok_or(BondingCurveError::MathOverflow)?;
+        }
+        Ok(())
+    }
+}
+
+/// معطى تعليمة create_token (مش مخزَّن على السلسلة بهالشكل) — هوية مستفيد واحد
+/// + حصته المطلوبة بالمصفوفة. الـ handler يطبّع الهوية ويحوّلها لـ FeeSplitRecipient.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct FeeSplitRecipientInput {
+    pub creator_type: CreatorType,
+    pub social_handle: Option<String>,
+    pub wallet: Option<Pubkey>,
+    pub bps: u16,
 }
