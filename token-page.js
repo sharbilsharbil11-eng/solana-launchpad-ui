@@ -101,6 +101,29 @@ async function initRealTokenPage(mintStr) {
   // render on these.
   loadRealTrades(connection, mintPubkey);
   loadRealHolders(connection, mintPubkey, curve);
+  loadCreatorFeeIdentity(connection, mintPubkey);
+}
+
+// Shows who the creator fee vault actually pays — either this token's
+// creator wallet, or a linked X handle (self-declared at creation, not
+// verified — see the note on the Create page). Real on-chain read either
+// way, not inferred from localStorage.
+async function loadCreatorFeeIdentity(connection, mintPubkey) {
+  const el = document.getElementById('infoCreator');
+  if (!el) return;
+  let vault;
+  try {
+    vault = await fetchCreatorFeeVault(connection, mintPubkey);
+  } catch (err) {
+    console.error('Failed to load creator fee vault:', err);
+    return;
+  }
+  if (!vault) return;
+  if (vault.creatorType === 'wallet' && vault.identityPubkey) {
+    el.textContent = shortenAddress(vault.identityPubkey.toBase58());
+  } else if (vault.identityString) {
+    el.innerHTML = `🐦 @${escapeHtml(vault.identityString)} <span style="color:var(--text-dim);font-weight:400;">(unverified)</span>`;
+  }
 }
 
 function applyTokenIdentity(mintStr, meta) {
