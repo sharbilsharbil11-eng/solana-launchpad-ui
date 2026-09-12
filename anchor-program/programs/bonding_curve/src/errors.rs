@@ -70,4 +70,10 @@ pub enum BondingCurveError {
 
     #[msg("رقم المستفيد المحدد غير موجود بمصفوفة توزيع الرسوم لهذه العملة")]
     InvalidFeeSplitRecipientIndex,
+
+    #[msg("المستفيد الأساسي (recipients[0]) لازم ياخد 50% كحد أدنى من نصيب صانع العملة")]
+    PrimaryRecipientShareTooLow,
+
+    #[msg("كل مساهم اختياري محدود بحد أقصى 10% من نصيب صانع العملة")]
+    ContributorShareTooHigh,
 }

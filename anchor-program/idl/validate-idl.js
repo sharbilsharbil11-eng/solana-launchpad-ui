@@ -112,9 +112,9 @@ console.log('Global.feeBasisPoints === 50:', decodedGlobal.feeBasisPoints.toStri
 console.log('Global.creatorFeeBasisPoints === 50:', decodedGlobal.creatorFeeBasisPoints.toString() === '50');
 console.log('Global.bump === 7:', decodedGlobal.bump === 7);
 
-// FeeSplitter with 2 active recipients (out of the fixed 5-slot array) —
+// FeeSplitter with 2 active recipients (out of the fixed 6-slot array) —
 // recipient[0] Wallet (identity = 32-byte pubkey padded to 64), recipient[1]
-// X (identity = UTF-8 handle padded to 64), recipients[2..4] all-zero padding.
+// X (identity = UTF-8 handle padded to 64), recipients[2..5] all-zero padding.
 function encodeRecipient({ tag, identity64, identityLen, bps, accrued, claimed }) {
   return Buffer.concat([
     Buffer.from([tag]),
@@ -140,6 +140,7 @@ const splitterBuf = Buffer.concat([
   emptyRecipient,
   emptyRecipient,
   emptyRecipient,
+  emptyRecipient,
   Buffer.from([9]), // bump
 ]);
 const decodedSplitter = coder.accounts.decode('FeeSplitter', splitterBuf);
@@ -150,7 +151,7 @@ console.log('FeeSplitter.recipients[0].accruedLamports === 123456789:', decodedS
 console.log('FeeSplitter.recipients[1].creatorType is X:', 'x' in decodedSplitter.recipients[1].creatorType);
 console.log('FeeSplitter.recipients[1].bps === 4000:', decodedSplitter.recipients[1].bps === 4000);
 console.log('FeeSplitter.recipients[1].totalClaimedLamports === 100:', decodedSplitter.recipients[1].totalClaimedLamports.toString() === '100');
-console.log('FeeSplitter.recipients.length === 5 (fixed-size array):', decodedSplitter.recipients.length === 5);
+console.log('FeeSplitter.recipients.length === 6 (fixed-size array):', decodedSplitter.recipients.length === 6);
 console.log('FeeSplitter.bump === 9:', decodedSplitter.bump === 9);
 
 console.log('\nAll checks printed above — every one must read true.');

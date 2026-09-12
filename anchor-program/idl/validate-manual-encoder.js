@@ -110,7 +110,7 @@ const splitterBuf = Buffer.concat([
   Buffer.from([2]),
   encodeRecipientBuf({ tag: 0, identity64: walletIdentity, identityLen: 0, bps: 6000, accrued: 123456789, claimed: 0 }),
   encodeRecipientBuf({ tag: 1, identity64: xIdentity, identityLen: 8, bps: 4000, accrued: 555, claimed: 100 }),
-  emptyRecipientBuf, emptyRecipientBuf, emptyRecipientBuf,
+  emptyRecipientBuf, emptyRecipientBuf, emptyRecipientBuf, emptyRecipientBuf,
   Buffer.from([11]),
 ]);
 const decodedSplitter = sandbox.decodeFeeSplitter(splitterBuf);

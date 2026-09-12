@@ -3,7 +3,7 @@ use crate::errors::BondingCurveError;
 use crate::identity::{encode_identity, normalize_identity};
 use crate::state::{
     BondingCurve, CreatorType, FeeSplitRecipient, FeeSplitRecipientInput, FeeSplitter,
-    FEE_SPLIT_TOTAL_BPS, MAX_FEE_SPLIT_RECIPIENTS,
+    CONTRIBUTOR_MAX_BPS, FEE_SPLIT_TOTAL_BPS, MAX_FEE_SPLIT_RECIPIENTS, PRIMARY_RECIPIENT_MIN_BPS,
 };
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
@@ -135,8 +135,12 @@ pub fn handler(
     bonding_curve.complete = false;
     bonding_curve.bump = ctx.bumps.bonding_curve;
 
-    // 5. تفعيل خزينة الرسوم المُقسَّمة (Fee Splitter) — حتى 5 مستفيدين، حصة كل
-    // واحد بتتجمع بشكل مستقل تمامًا عن الباقي مع كل صفقة buy/sell
+    // 5. تفعيل خزينة الرسوم المُقسَّمة (Fee Splitter) — مستفيد أساسي واحد
+    // إلزامي (recipients[0]، هوية صانع العملة أو حساب إكس اللي ربطها فيه)
+    // ياخد 50% كحد أدنى دايمًا، + لحد 5 مساهمين اختياريين كل واحد محدود
+    // بحد أقصى 10%. حصة كل واحد بتتجمع بشكل مستقل تمامًا عن الباقي مع كل
+    // صفقة buy/sell. هاي الضمانة مفروضة هون بالعقد نفسه — مش بس بواجهة
+    // المستخدم — حتى لو حدا استدعى create_token مباشرة بدون المرور بالواجهة.
     require!(
         !recipients.is_empty() && recipients.len() <= MAX_FEE_SPLIT_RECIPIENTS,
         BondingCurveError::InvalidFeeSplitRecipientCount
@@ -146,6 +150,16 @@ pub fn handler(
         bps_sum == FEE_SPLIT_TOTAL_BPS as u32,
         BondingCurveError::InvalidFeeSplitTotal
     );
+    require!(
+        recipients[0].bps >= PRIMARY_RECIPIENT_MIN_BPS,
+        BondingCurveError::PrimaryRecipientShareTooLow
+    );
+    for contributor in recipients.iter().skip(1) {
+        require!(
+            contributor.bps <= CONTRIBUTOR_MAX_BPS,
+            BondingCurveError::ContributorShareTooHigh
+        );
+    }
 
     let splitter = &mut ctx.accounts.fee_splitter;
     splitter.mint = ctx.accounts.mint.key();
