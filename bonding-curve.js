@@ -40,8 +40,18 @@ const ACCOUNT_DISCRIMINATOR = {
   BondingCurve: [23, 183, 248, 55, 96, 216, 172, 96],
   FeeSplitter: [167, 3, 25, 27, 195, 153, 169, 183],
 };
-const MAX_FEE_SPLIT_RECIPIENTS = 5;
+// recipients[0] is the mandatory primary recipient (creator's own wallet or
+// linked X profile) + up to 5 optional contributors — matches
+// anchor-program/src/state.rs MAX_FEE_SPLIT_RECIPIENTS exactly.
+const MAX_FEE_SPLIT_RECIPIENTS = 6;
 const FEE_SPLIT_TOTAL_BPS = 10000; // matches anchor-program/src/state.rs FEE_SPLIT_TOTAL_BPS
+// recipients[0] always gets at least this share (5000 = 50%) — enforced
+// on-chain in create_token, not just here; matches PRIMARY_RECIPIENT_MIN_BPS.
+const PRIMARY_RECIPIENT_MIN_BPS = 5000;
+// Each recipients[1..] entry is capped at this share (1000 = 10%) — 5
+// contributors x 10% = 50%, so the primary's floor above holds by
+// construction. Matches CONTRIBUTOR_MAX_BPS.
+const CONTRIBUTOR_MAX_BPS = 1000;
 
 // ── Tiny borsh-compatible byte writer ──
 class ByteWriter {
@@ -133,7 +143,12 @@ function keyMeta(pubkey, { signer = false, writable = false } = {}) {
  * bps share and independently claimable balance) — one instruction.
  * `recipients`: [{ creatorType: {wallet:{}}|{x:{}}|..., socialHandle, wallet, bps }],
  * bps must sum to exactly FEE_SPLIT_TOTAL_BPS (10000 = 100% of the creator's
- * fee share — not of total trade volume). */
+ * fee share — not of total trade volume). recipients[0] is the mandatory
+ * primary recipient and must have bps >= PRIMARY_RECIPIENT_MIN_BPS;
+ * recipients[1..] are optional contributors, each capped at
+ * CONTRIBUTOR_MAX_BPS — this mirrors validation the program itself
+ * enforces in create_token, checked here too so a bad split fails fast
+ * client-side instead of burning a transaction. */
 function buildCreateTokenInstruction({ creator, mint, totalSupply, decimals, recipients }) {
   const [bondingCurve] = getBondingCurvePda(mint);
   const [feeSplitter] = getFeeSplitterPda(mint);
@@ -145,6 +160,14 @@ function buildCreateTokenInstruction({ creator, mint, totalSupply, decimals, rec
   const bpsSum = recipients.reduce((sum, r) => sum + r.bps, 0);
   if (bpsSum !== FEE_SPLIT_TOTAL_BPS) {
     throw new Error(`recipients' bps must sum to ${FEE_SPLIT_TOTAL_BPS} (got ${bpsSum})`);
+  }
+  if (recipients[0].bps < PRIMARY_RECIPIENT_MIN_BPS) {
+    throw new Error(`the primary recipient (recipients[0]) must have at least ${PRIMARY_RECIPIENT_MIN_BPS / 100}% (got ${recipients[0].bps / 100}%)`);
+  }
+  for (let i = 1; i < recipients.length; i++) {
+    if (recipients[i].bps > CONTRIBUTOR_MAX_BPS) {
+      throw new Error(`contributor #${i} exceeds the ${CONTRIBUTOR_MAX_BPS / 100}% cap (got ${recipients[i].bps / 100}%)`);
+    }
   }
 
   const w = new ByteWriter().bytes(DISCRIMINATOR.create_token);
@@ -341,7 +364,7 @@ async function sendVeloTransaction(connection, instructions, extraSigners = []) 
   return signature;
 }
 
-async function createTokenOnChain({ totalSupply = DEFAULT_TOTAL_SUPPLY, initialBuySol = 0, xHandle = null } = {}) {
+async function createTokenOnChain({ totalSupply = DEFAULT_TOTAL_SUPPLY, initialBuySol = 0, xHandle = null, recipients = null } = {}) {
   const connection = new solanaWeb3.Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
   const global = await fetchGlobal(connection);
   if (!global) throw new Error('The platform has not been initialized on-chain yet.');
@@ -349,14 +372,20 @@ async function createTokenOnChain({ totalSupply = DEFAULT_TOTAL_SUPPLY, initialB
   const mintKeypair = solanaWeb3.Keypair.generate();
   const totalSupplyRaw = BigInt(totalSupply) * 10n ** BigInt(TOKEN_DECIMALS);
 
-  // Single-recipient fee splitter (100% of the creator's share): either this
-  // wallet (default, and the only type claim_fee_split_wallet can pay out
-  // today), or an X handle — the program accepts CreatorType::X with no
-  // verification of who actually owns that handle, so its fees just accrue
-  // safely in the splitter until a real oracle-verified claim path exists.
-  const recipients = xHandle
-    ? [{ creatorType: { x: {} }, socialHandle: xHandle, wallet: null, bps: FEE_SPLIT_TOTAL_BPS }]
-    : [{ creatorType: { wallet: {} }, socialHandle: null, wallet: currentWallet.publicKey, bps: FEE_SPLIT_TOTAL_BPS }];
+  // Fee splitter recipients (creator's 0.5% fee share, divided by bps —
+  // FEE_SPLIT_TOTAL_BPS = 100% of that share, not of total trade volume).
+  // Callers building a multi-recipient split (create.html's "Add recipient"
+  // UI) pass `recipients` directly, already shaped as
+  // [{ creatorType, socialHandle, wallet, bps }, ...]. Without it, this
+  // falls back to the single-recipient default: either this wallet, or an
+  // X handle — the program accepts CreatorType::X with no verification of
+  // who actually owns that handle, so its fees just accrue safely in the
+  // splitter until a real oracle-verified claim path exists.
+  if (!recipients) {
+    recipients = xHandle
+      ? [{ creatorType: { x: {} }, socialHandle: xHandle, wallet: null, bps: FEE_SPLIT_TOTAL_BPS }]
+      : [{ creatorType: { wallet: {} }, socialHandle: null, wallet: currentWallet.publicKey, bps: FEE_SPLIT_TOTAL_BPS }];
+  }
   const createIx = buildCreateTokenInstruction({
     creator: currentWallet.publicKey,
     mint: mintKeypair.publicKey,

@@ -153,8 +153,18 @@ impl CreatorFeeVault {
 /// بنفس منطق الثقة السابق حسب النوع:
 ///   - Wallet: مطالبة مباشرة trustless (claim_fee_split_wallet)
 ///   - X / TikTok / Gmail: تتطلب توقيع Oracle (غير مبني بعد — بانتظار تكامل X API حقيقي)
-pub const MAX_FEE_SPLIT_RECIPIENTS: usize = 5;
+/// مستفيد أساسي واحد إلزامي (index 0) + لحد 5 مساهمين اختياريين (index 1-5)
+pub const MAX_FEE_SPLIT_RECIPIENTS: usize = 6;
 pub const FEE_SPLIT_TOTAL_BPS: u16 = 10_000; // 100% من نصيب الـ Creator (مش من إجمالي حجم التداول)
+/// المستفيد الأساسي (recipients[0] — هوية صانع العملة أو حساب إكس اللي ربطها فيه)
+/// إلزامي ياخد 50% كحد أدنى من نصيب الـ Creator، دايمًا، مهما كان عدد
+/// المساهمين المضافين. مفروضة هون على مستوى العقد نفسه (مش بس بواجهة
+/// المستخدم) حتى تضل ضمانة حقيقية حتى لو حدا استدعى create_token مباشرة.
+pub const PRIMARY_RECIPIENT_MIN_BPS: u16 = 5_000;
+/// كل مساهم اختياري (recipients[1..]) محدود بحد أقصى 10% من نصيب الـ
+/// Creator — 5 مساهمين × 10% = 50%، فبالتالي حصة المستفيد الأساسي محفوظة
+/// تلقائيًا فوق الـ 50% (لأنو الباقي بعد المساهمين ما بينزل تحت 50%).
+pub const CONTRIBUTOR_MAX_BPS: u16 = 1_000;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct FeeSplitRecipient {

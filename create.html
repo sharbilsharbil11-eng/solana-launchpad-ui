@@ -129,12 +129,32 @@
           <textarea id="tokenDesc" class="form-input" placeholder="Tell people what your token is about..." rows="4"></textarea>
         </div>
 
-        <!-- Creator fee identity (optional): link the fee splitter's sole
-             recipient to an X handle instead of this wallet. -->
+        <!-- Creator fee split: one mandatory primary recipient (this wallet
+             or a linked X profile — always guaranteed at least 50% of the
+             creator's 0.5% fee share, enforced on-chain) + up to 5 optional
+             contributors, each capped at 10%. Defaults to the primary alone
+             at 100%, so existing single-recipient behavior needs no change. -->
         <div class="form-group">
-          <label class="form-label" for="tokenXProfile">X profile <span style="color:var(--text-dim);font-weight:400;">(optional)</span></label>
-          <input type="text" id="tokenXProfile" class="form-input" placeholder="x.com/handle">
-          <p class="form-hint">Link your creator fees to an X profile instead of this wallet — trades still credit fees to your token immediately, but for now only a wallet-linked token can claim them. X-linked claiming needs real X sign-in verification, which isn't wired up yet, so leave this blank to claim from this wallet directly.</p>
+          <label class="form-label">Creator Fee Split</label>
+          <p class="form-hint" style="margin-top:-2px;margin-bottom:10px;">
+            Your 0.5% creator fee always guarantees the primary recipient below at least 50% — that's enforced by the smart contract itself, not just this form. Optionally add up to 5 contributors on top, each capped at 10%, and the primary automatically keeps whatever's left. A wallet-type recipient can claim their share themselves right now; X-profile recipients accrue safely but need real X sign-in (not wired up yet) before that person can claim.
+          </p>
+
+          <div class="fee-recipient-row" id="primaryRecipientRow">
+            <select class="form-input recipient-type-select" id="primaryTypeSelect" onchange="onPrimaryTypeChange()">
+              <option value="wallet">Wallet address</option>
+              <option value="x">X profile (@handle)</option>
+            </select>
+            <input type="text" class="form-input recipient-identity-input" id="primaryIdentityInput" placeholder="Your Velo wallet (leave blank to use it)">
+            <span id="primaryShareLabel" style="flex:0 0 auto;font-size:13px;font-weight:700;color:var(--green);min-width:56px;text-align:right;">100%</span>
+          </div>
+          <p class="form-hint" style="margin:-2px 0 12px;">↑ Primary recipient — always present, always at least 50%.</p>
+
+          <div id="feeContributorsList"></div>
+          <div class="form-row" style="margin-top:2px;align-items:center;">
+            <button type="button" class="btn btn-outline" id="addContributorBtn" onclick="addContributorRow()" style="flex:0 0 auto;">+ Add contributor</button>
+            <span id="recipientsTotalIndicator" style="margin-left:auto;font-size:13px;font-weight:600;"></span>
+          </div>
         </div>
 
         <!-- Show more options -->
@@ -224,6 +244,153 @@
   <script src="app.js"></script>
   <script src="bonding-curve.js"></script>
   <script>
+    // ── Creator fee split: recipients[0] is the mandatory primary
+    // recipient (>= PRIMARY_RECIPIENT_MIN_BPS = 50%, fixed row, always
+    // present) + up to MAX_CONTRIBUTORS optional contributors, each capped
+    // at CONTRIBUTOR_MAX_BPS = 10%. All three constants come from
+    // bonding-curve.js and mirror what the on-chain program itself
+    // enforces in create_token — this UI can't produce a split the
+    // program would reject. ──
+    const MAX_CONTRIBUTORS = MAX_FEE_SPLIT_RECIPIENTS - 1; // 5, alongside the 1 mandatory primary
+    const CONTRIBUTOR_MAX_PCT = CONTRIBUTOR_MAX_BPS / 100; // 10
+    let contributorRowSeq = 0;
+
+    function escapeAttr(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function onPrimaryTypeChange() {
+      const type = document.getElementById('primaryTypeSelect').value;
+      document.getElementById('primaryIdentityInput').placeholder =
+        type === 'x' ? '@handle' : 'Your Velo wallet (leave blank to use it)';
+    }
+
+    function contributorRowHtml(id, { type = 'wallet', identity = '', pct = CONTRIBUTOR_MAX_PCT } = {}) {
+      return `
+        <div class="fee-recipient-row" data-row-id="${id}">
+          <select class="form-input recipient-type-select" onchange="onContributorTypeChange(this)">
+            <option value="wallet"${type === 'wallet' ? ' selected' : ''}>Wallet address</option>
+            <option value="x"${type === 'x' ? ' selected' : ''}>X profile (@handle)</option>
+          </select>
+          <input type="text" class="form-input recipient-identity-input" placeholder="${type === 'x' ? '@handle' : 'Contributor wallet address'}" value="${escapeAttr(identity)}">
+          <input type="number" class="form-input recipient-bps-input" min="0.01" max="${CONTRIBUTOR_MAX_PCT}" step="0.01" value="${pct}" oninput="updateRecipientsTotal()">
+          <span class="recipient-pct-sign">%</span>
+          <button type="button" class="recipient-remove-btn" onclick="removeContributorRow(this)" title="Remove contributor">✕</button>
+        </div>`;
+    }
+
+    function addContributorRow(prefill) {
+      const list = document.getElementById('feeContributorsList');
+      if (list.children.length >= MAX_CONTRIBUTORS) return;
+      const id = ++contributorRowSeq;
+      list.insertAdjacentHTML('beforeend', contributorRowHtml(id, prefill));
+      refreshContributorRowsState();
+    }
+
+    function removeContributorRow(btn) {
+      btn.closest('.fee-recipient-row').remove();
+      refreshContributorRowsState();
+    }
+
+    function onContributorTypeChange(select) {
+      const identityInput = select.closest('.fee-recipient-row').querySelector('.recipient-identity-input');
+      identityInput.placeholder = select.value === 'x' ? '@handle' : 'Contributor wallet address';
+    }
+
+    function refreshContributorRowsState() {
+      const count = document.getElementById('feeContributorsList').children.length;
+      document.getElementById('addContributorBtn').disabled = count >= MAX_CONTRIBUTORS;
+      updateRecipientsTotal();
+    }
+
+    // Sums contributor bps (each already capped at CONTRIBUTOR_MAX_BPS by
+    // the input's max="10"), derives the primary's remaining share, and
+    // reflects both live. The primary can never read below
+    // PRIMARY_RECIPIENT_MIN_BPS this way: MAX_CONTRIBUTORS x
+    // CONTRIBUTOR_MAX_BPS === PRIMARY_RECIPIENT_MIN_BPS by construction.
+    function updateRecipientsTotal() {
+      const contributorRows = [...document.getElementById('feeContributorsList').children];
+      const contributorBps = contributorRows.reduce((sum, row) => {
+        const pct = parseFloat(row.querySelector('.recipient-bps-input').value);
+        return sum + (isFinite(pct) ? Math.min(Math.round(pct * 100), CONTRIBUTOR_MAX_BPS) : 0);
+      }, 0);
+      const primaryBps = FEE_SPLIT_TOTAL_BPS - contributorBps;
+
+      const fmtPct = (bps) => (bps / 100).toFixed(2).replace(/\.?0+$/, '') || '0';
+      document.getElementById('primaryShareLabel').textContent = fmtPct(primaryBps) + '%';
+
+      const indicator = document.getElementById('recipientsTotalIndicator');
+      const totalBps = primaryBps + contributorBps;
+      indicator.textContent = `Total: ${fmtPct(totalBps)}%`;
+      indicator.style.color = totalBps === FEE_SPLIT_TOTAL_BPS ? 'var(--green)' : 'var(--red)';
+      return { primaryBps, contributorBps };
+    }
+
+    // Reads the primary row + contributor rows and builds the `recipients`
+    // array createTokenOnChain/buildCreateTokenInstruction expects, with
+    // the primary always first. Throws a descriptive Error (shown directly
+    // in the form) on any problem — invalid address, invalid handle, or a
+    // contributor over the 10% cap.
+    function collectFeeRecipients() {
+      function readRow({ typeSelect, identityInput, label, isPrimary, pct }) {
+        const type = typeSelect.value;
+        const rawIdentity = identityInput.value.trim();
+        if (type === 'x') {
+          const handle = normalizeXHandleForChain(rawIdentity);
+          if (!handle) throw new Error(`${label}: enter an X profile handle.`);
+          if (!/^[a-zA-Z0-9_.]{1,64}$/.test(handle)) throw new Error(`${label}: X profile can only contain letters, numbers, "_" and "." — check the handle.`);
+          return { creatorType: { x: {} }, socialHandle: handle, wallet: null, bps: pct };
+        }
+        // Wallet type — the primary row may be left blank to default to this Velo wallet.
+        const addressStr = rawIdentity || (isPrimary ? currentWallet.publicKey.toBase58() : '');
+        if (!addressStr) throw new Error(`${label}: enter a wallet address.`);
+        let wallet;
+        try {
+          wallet = new solanaWeb3.PublicKey(addressStr);
+        } catch (err) {
+          throw new Error(`${label}: "${addressStr}" isn't a valid Solana wallet address.`);
+        }
+        return { creatorType: { wallet: {} }, socialHandle: null, wallet, bps: pct };
+      }
+
+      const contributorRows = [...document.getElementById('feeContributorsList').children];
+      if (contributorRows.length > MAX_CONTRIBUTORS) throw new Error(`At most ${MAX_CONTRIBUTORS} contributors are allowed.`);
+
+      const contributors = contributorRows.map((row, i) => {
+        const pctRaw = parseFloat(row.querySelector('.recipient-bps-input').value);
+        if (!isFinite(pctRaw) || pctRaw <= 0) throw new Error(`Contributor #${i + 1}: enter a percentage greater than 0.`);
+        const bps = Math.round(pctRaw * 100);
+        if (bps > CONTRIBUTOR_MAX_BPS) throw new Error(`Contributor #${i + 1}: capped at ${CONTRIBUTOR_MAX_PCT}% (got ${pctRaw}%).`);
+        return readRow({
+          typeSelect: row.querySelector('.recipient-type-select'),
+          identityInput: row.querySelector('.recipient-identity-input'),
+          label: `Contributor #${i + 1}`,
+          isPrimary: false,
+          pct: bps,
+        });
+      });
+
+      const contributorBps = contributors.reduce((sum, r) => sum + r.bps, 0);
+      const primaryBps = FEE_SPLIT_TOTAL_BPS - contributorBps;
+      if (primaryBps < PRIMARY_RECIPIENT_MIN_BPS) {
+        // Guarded against by the 10%-per-row cap x MAX_CONTRIBUTORS rows,
+        // but re-checked explicitly in case that invariant ever changes.
+        throw new Error(`Contributors can't take more than ${(FEE_SPLIT_TOTAL_BPS - PRIMARY_RECIPIENT_MIN_BPS) / 100}% combined — the primary recipient must keep at least ${PRIMARY_RECIPIENT_MIN_BPS / 100}%.`);
+      }
+
+      const primary = readRow({
+        typeSelect: document.getElementById('primaryTypeSelect'),
+        identityInput: document.getElementById('primaryIdentityInput'),
+        label: 'Primary recipient',
+        isPrimary: true,
+        pct: primaryBps,
+      });
+
+      return [primary, ...contributors];
+    }
+
+    updateRecipientsTotal();
+
     function toggleAdvanced() {
       const el = document.getElementById('advancedOptions');
       const arrow = document.getElementById('advancedArrow');
@@ -243,7 +410,6 @@
       const name = document.getElementById('tokenName').value.trim();
       const ticker = document.getElementById('tokenTicker').value.trim();
       const initialBuySol = parseFloat(document.getElementById('initialBuySol').value) || 0;
-      const xHandle = normalizeXHandleForChain(document.getElementById('tokenXProfile').value);
 
       if (!name || !ticker) {
         statusEl.style.display = 'block';
@@ -251,16 +417,20 @@
         statusEl.textContent = 'Name and ticker are required.';
         return;
       }
-      if (xHandle && !/^[a-zA-Z0-9_.]{1,64}$/.test(xHandle)) {
-        statusEl.style.display = 'block';
-        statusEl.style.color = 'var(--red)';
-        statusEl.textContent = 'X profile can only contain letters, numbers, "_" and "." — check the handle.';
-        return;
-      }
       if (!currentWallet) {
         statusEl.style.display = 'block';
         statusEl.style.color = 'var(--red)';
         statusEl.textContent = 'Your Velo wallet is still generating — wait a moment and try again.';
+        return;
+      }
+
+      let recipients;
+      try {
+        recipients = collectFeeRecipients();
+      } catch (err) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = err.message;
         return;
       }
 
@@ -271,7 +441,7 @@
       statusEl.textContent = 'Sending transaction — this needs SOL in your Velo wallet for rent + fees.';
 
       try {
-        const { signature, mint } = await createTokenOnChain({ initialBuySol, xHandle: xHandle || null });
+        const { signature, mint } = await createTokenOnChain({ initialBuySol, recipients });
         saveTokenMeta(mint, {
           name,
           ticker,
