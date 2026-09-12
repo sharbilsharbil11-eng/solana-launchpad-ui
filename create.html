@@ -129,8 +129,8 @@
           <textarea id="tokenDesc" class="form-input" placeholder="Tell people what your token is about..." rows="4"></textarea>
         </div>
 
-        <!-- Creator fee identity (optional): link the CreatorFeeVault to an
-             X handle instead of this wallet. -->
+        <!-- Creator fee identity (optional): link the fee splitter's sole
+             recipient to an X handle instead of this wallet. -->
         <div class="form-group">
           <label class="form-label" for="tokenXProfile">X profile <span style="color:var(--text-dim);font-weight:400;">(optional)</span></label>
           <input type="text" id="tokenXProfile" class="form-input" placeholder="x.com/handle">
@@ -167,7 +167,7 @@
           </div>
 
           <!-- Creator Fee — not a toggle: the on-chain program always creates a
-               CreatorFeeVault for every token, so there is no "off" state to offer. -->
+               fee splitter for every token, so there is no "off" state to offer. -->
           <div class="form-switch-row" style="margin-bottom:12px;">
             <div>
               <div class="form-switch-label">💰 Creator Fees</div>

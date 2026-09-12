@@ -44,18 +44,9 @@ pub mod bonding_curve {
         ctx: Context<CreateToken>,
         decimals: u8,
         total_supply: u64,
-        creator_type: CreatorType,
-        social_handle: Option<String>,
-        creator_wallet: Option<Pubkey>,
+        recipients: Vec<state::FeeSplitRecipientInput>,
     ) -> Result<()> {
-        instructions::create_token::handler(
-            ctx,
-            decimals,
-            total_supply,
-            creator_type,
-            social_handle,
-            creator_wallet,
-        )
+        instructions::create_token::handler(ctx, decimals, total_supply, recipients)
     }
 
     /// (مسار قديم متعدد الخطوات — لسا موجود لمرونة إضافية، بس create.tsx ما عاد يستخدمه)
@@ -131,5 +122,15 @@ pub mod bonding_curve {
         handle: String,
     ) -> Result<()> {
         instructions::claim_creator_fees_social::handler(ctx, handle)
+    }
+
+    /// يسحب حصة مستفيد واحد بمصفوفة الـ Fee Splitter (حتى 5 مستفيدين بمصفوفة
+    /// create_token) — مسار مباشر trustless، ينطبق فقط على creator_type ==
+    /// Wallet. recipient_index هو موقع هذا المستفيد داخل المصفوفة (0 إلى 4).
+    pub fn claim_fee_split_wallet(
+        ctx: Context<ClaimFeeSplitWallet>,
+        recipient_index: u8,
+    ) -> Result<()> {
+        instructions::claim_fee_split_wallet::handler(ctx, recipient_index)
     }
 }

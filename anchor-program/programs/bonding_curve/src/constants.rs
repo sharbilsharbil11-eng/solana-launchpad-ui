@@ -26,3 +26,6 @@ pub const CLAIM_SEED: &[u8] = b"claim";
 
 /// seed لخزينة أرباح الـ Creator المتراكمة (Creator Fee Vault) — واحدة لكل mint
 pub const CREATOR_FEE_VAULT_SEED: &[u8] = b"creator-fee-vault";
+
+/// seed لخزينة الرسوم المُقسَّمة على عدة مستفيدين (Fee Splitter) — واحدة لكل mint
+pub const FEE_SPLITTER_SEED: &[u8] = b"fee-splitter";

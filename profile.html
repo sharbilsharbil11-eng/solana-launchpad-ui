@@ -220,6 +220,7 @@
     }
 
     let lastCheckedClaimMint = null;
+    let lastCheckedClaimRecipientIndex = null;
 
     async function handleCheckCreatorFees() {
       const mintStr = document.getElementById('claimMintInput').value.trim();
@@ -234,32 +235,45 @@
       noteEl.textContent = '';
       claimBtn.style.display = 'none';
       lastCheckedClaimMint = null;
+      lastCheckedClaimRecipientIndex = null;
 
       try {
         const connection = new solanaWeb3.Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
         const mint = new solanaWeb3.PublicKey(mintStr);
-        const vault = await fetchCreatorFeeVault(connection, mint);
-        if (!vault) {
+        const splitter = await fetchFeeSplitter(connection, mint);
+        if (!splitter || splitter.recipientCount === 0) {
           amountEl.textContent = '—';
-          noteEl.textContent = 'No creator fee vault found for this mint.';
+          noteEl.textContent = 'No fee splitter found for this mint.';
           return;
         }
-        if (vault.creatorType !== 'wallet') {
-          amountEl.textContent = '—';
-          noteEl.textContent = 'This token was registered with a ' + vault.creatorType + ' identity — social claiming isn\'t wired up yet, only Wallet-type vaults can claim right now.';
+        // Find this wallet's own slot in the splitter (today create.html
+        // always writes a single-recipient array, but this holds up if a
+        // future multi-recipient creation UI adds more).
+        let matchIndex = -1;
+        if (currentWallet) {
+          matchIndex = splitter.recipients.findIndex(
+            (r) => r.creatorType === 'wallet' && r.identityPubkey && r.identityPubkey.equals(currentWallet.publicKey)
+          );
+        }
+        if (matchIndex === -1) {
+          const first = splitter.recipients[0];
+          if (first.creatorType !== 'wallet') {
+            amountEl.textContent = '—';
+            noteEl.textContent = 'This token was registered with a ' + first.creatorType + ' identity — social claiming isn\'t wired up yet, only Wallet-type recipients can claim right now.';
+          } else {
+            amountEl.textContent = (Number(first.accruedLamports) / solanaWeb3.LAMPORTS_PER_SOL).toFixed(4) + ' SOL accrued';
+            noteEl.textContent = 'This splitter has no recipient matching the wallet signed in here — only the matching wallet can claim it.';
+          }
           return;
         }
-        if (!currentWallet || !vault.identityPubkey.equals(currentWallet.publicKey)) {
-          amountEl.textContent = (Number(vault.accruedLamports) / solanaWeb3.LAMPORTS_PER_SOL).toFixed(4) + ' SOL accrued';
-          noteEl.textContent = 'This vault belongs to a different wallet than the one signed in here — only that wallet can claim it.';
-          return;
-        }
-        const sol = Number(vault.accruedLamports) / solanaWeb3.LAMPORTS_PER_SOL;
+        const entry = splitter.recipients[matchIndex];
+        const sol = Number(entry.accruedLamports) / solanaWeb3.LAMPORTS_PER_SOL;
         amountEl.textContent = sol.toFixed(4) + ' SOL accrued';
         if (sol > 0) {
-          noteEl.textContent = 'Verified: this is your wallet\'s vault. Claim goes straight to your Velo wallet.';
+          noteEl.textContent = 'Verified: this is your wallet\'s share. Claim goes straight to your Velo wallet.';
           claimBtn.style.display = '';
           lastCheckedClaimMint = mintStr;
+          lastCheckedClaimRecipientIndex = matchIndex;
         } else {
           noteEl.textContent = 'Nothing accrued yet — fees build up as people trade this token.';
         }
@@ -271,18 +285,19 @@
     }
 
     async function handleClaimCreatorFees() {
-      if (!lastCheckedClaimMint) return;
+      if (!lastCheckedClaimMint || lastCheckedClaimRecipientIndex === null) return;
       const claimBtn = document.getElementById('claimFeesBtn');
       const noteEl = document.getElementById('claimFeesNote');
       claimBtn.disabled = true;
       claimBtn.textContent = 'Claiming…';
       try {
-        const { signature, claimedLamports } = await claimCreatorFeesWalletOnChain({ mint: lastCheckedClaimMint });
+        const { signature, claimedLamports } = await claimFeeSplitWalletOnChain({ mint: lastCheckedClaimMint, recipientIndex: lastCheckedClaimRecipientIndex });
         const sol = Number(claimedLamports) / solanaWeb3.LAMPORTS_PER_SOL;
         noteEl.innerHTML = `✅ Claimed ${sol.toFixed(4)} SOL — <a href="https://explorer.solana.com/tx/${signature}?cluster=devnet" target="_blank" rel="noopener" style="color:var(--green);text-decoration:underline;">view transaction</a>`;
         document.getElementById('claimFeesAmount').textContent = '0.0000 SOL accrued';
         claimBtn.style.display = 'none';
         lastCheckedClaimMint = null;
+        lastCheckedClaimRecipientIndex = null;
       } catch (err) {
         console.error('Claim creator fees failed:', err);
         noteEl.textContent = 'Claim failed: ' + (err && err.message ? err.message : 'Unknown error.');
