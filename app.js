@@ -319,6 +319,21 @@ function shortenAddress(address) {
   return address.slice(0, 4) + '...' + address.slice(-4);
 }
 
+// Accepts a bare handle, "@handle", or a full x.com/twitter.com URL and
+// strips it down to the bare handle the on-chain program's own
+// normalize_identity() expects (it only strips a leading "@" itself, not
+// a URL prefix, and rejects "/" — so a pasted profile URL needs this
+// client-side before it's sent on-chain).
+function normalizeXHandleForChain(raw) {
+  let h = (raw || '').trim();
+  if (!h) return '';
+  h = h.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+  h = h.replace(/^(x\.com|twitter\.com)\//i, '');
+  h = h.replace(/^@/, '');
+  h = h.split(/[/?#]/)[0];
+  return h;
+}
+
 async function fetchWalletBalance(publicKey) {
   try {
     const connection = new solanaWeb3.Connection(SOLANA_RPC_ENDPOINT, 'confirmed');

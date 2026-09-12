@@ -129,6 +129,14 @@
           <textarea id="tokenDesc" class="form-input" placeholder="Tell people what your token is about..." rows="4"></textarea>
         </div>
 
+        <!-- Creator fee identity (optional): link the CreatorFeeVault to an
+             X handle instead of this wallet. -->
+        <div class="form-group">
+          <label class="form-label" for="tokenXProfile">X profile <span style="color:var(--text-dim);font-weight:400;">(optional)</span></label>
+          <input type="text" id="tokenXProfile" class="form-input" placeholder="x.com/handle">
+          <p class="form-hint">Link your creator fees to an X profile instead of this wallet — trades still credit fees to your token immediately, but for now only a wallet-linked token can claim them. X-linked claiming needs real X sign-in verification, which isn't wired up yet, so leave this blank to claim from this wallet directly.</p>
+        </div>
+
         <!-- Show more options -->
         <button type="button" class="show-more-btn" onclick="toggleAdvanced()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="advancedArrow"><path d="m6 9 6 6 6-6"/></svg>
@@ -235,11 +243,18 @@
       const name = document.getElementById('tokenName').value.trim();
       const ticker = document.getElementById('tokenTicker').value.trim();
       const initialBuySol = parseFloat(document.getElementById('initialBuySol').value) || 0;
+      const xHandle = normalizeXHandleForChain(document.getElementById('tokenXProfile').value);
 
       if (!name || !ticker) {
         statusEl.style.display = 'block';
         statusEl.style.color = 'var(--red)';
         statusEl.textContent = 'Name and ticker are required.';
+        return;
+      }
+      if (xHandle && !/^[a-zA-Z0-9_.]{1,64}$/.test(xHandle)) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = 'X profile can only contain letters, numbers, "_" and "." — check the handle.';
         return;
       }
       if (!currentWallet) {
@@ -256,7 +271,7 @@
       statusEl.textContent = 'Sending transaction — this needs SOL in your Velo wallet for rent + fees.';
 
       try {
-        const { signature, mint } = await createTokenOnChain({ initialBuySol });
+        const { signature, mint } = await createTokenOnChain({ initialBuySol, xHandle: xHandle || null });
         saveTokenMeta(mint, {
           name,
           ticker,

@@ -296,7 +296,7 @@ async function sendVeloTransaction(connection, instructions, extraSigners = []) 
   return signature;
 }
 
-async function createTokenOnChain({ totalSupply = DEFAULT_TOTAL_SUPPLY, initialBuySol = 0 } = {}) {
+async function createTokenOnChain({ totalSupply = DEFAULT_TOTAL_SUPPLY, initialBuySol = 0, xHandle = null } = {}) {
   const connection = new solanaWeb3.Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
   const global = await fetchGlobal(connection);
   if (!global) throw new Error('The platform has not been initialized on-chain yet.');
@@ -304,14 +304,20 @@ async function createTokenOnChain({ totalSupply = DEFAULT_TOTAL_SUPPLY, initialB
   const mintKeypair = solanaWeb3.Keypair.generate();
   const totalSupplyRaw = BigInt(totalSupply) * 10n ** BigInt(TOKEN_DECIMALS);
 
+  // Creator fee vault identity: either this wallet (default, and the only
+  // type claim_creator_fees_wallet can pay out today), or an X handle —
+  // the program accepts CreatorType::X with no verification of who
+  // actually owns that handle, so its fees just accrue safely until a
+  // real oracle-verified claim path exists (see claimCreatorFeesWalletOnChain's
+  // guard below).
   const createIx = buildCreateTokenInstruction({
     creator: currentWallet.publicKey,
     mint: mintKeypair.publicKey,
     totalSupply: totalSupplyRaw,
     decimals: TOKEN_DECIMALS,
-    creatorType: { wallet: {} },
-    socialHandle: null,
-    creatorWallet: currentWallet.publicKey,
+    creatorType: xHandle ? { x: {} } : { wallet: {} },
+    socialHandle: xHandle || null,
+    creatorWallet: xHandle ? null : currentWallet.publicKey,
   });
 
   const instructions = [createIx];
