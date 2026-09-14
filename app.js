@@ -192,21 +192,20 @@ async function renderJupiterMarketBoard(grid) {
     return;
   }
 
-  const walletBannerHtml = `
-    <div id="marketWalletBanner" class="market-wallet-banner" style="grid-column:1/-1;" onclick="event.stopPropagation()"></div>`;
-
-  const cardsHtml = veloJupiterTokens.map((t, i) => {
+  // Cards look and behave exactly like Velo's own token cards — same
+  // template, same click-through to token.html — the only difference is
+  // where the data (and, on that page, the trade) comes from. See
+  // token-page.js's initJupiterTokenPage for the token.html side of this.
+  grid.innerHTML = veloJupiterTokens.map((t, i) => {
     const changeColor = t.change24h > 0 ? 'var(--green)' : t.change24h < 0 ? 'var(--red)' : 'var(--text-muted)';
     const changeSign = t.change24h > 0 ? '+' : '';
     const iconHtml = t.icon
       ? `<img src="${escapeHtml(t.icon)}" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">`
       : '';
-    const domId = t.mint.replace(/[^a-zA-Z0-9]/g, '');
-    return `<div class="token-card fade-in" style="animation-delay:${i * 50}ms" onclick="window.open('https://solscan.io/token/${t.mint}', '_blank', 'noopener')" data-token-name="${escapeHtml(t.name.toLowerCase())}" data-token-ticker="${escapeHtml(t.symbol.toLowerCase())}" data-token-creator="" data-token-address="${t.mint.toLowerCase()}">
-      <div class="token-card-badge">🪐 Jupiter</div>
-      <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg,#0ea5e9,#6366f1);display:flex;align-items:center;justify-content:center;font-size:56px;position:relative;">
+    return `<div class="token-card fade-in" style="animation-delay:${i * 50}ms" onclick="window.location='token.html?mint=${t.mint}'" data-token-name="${escapeHtml(t.name.toLowerCase())}" data-token-ticker="${escapeHtml(t.symbol.toLowerCase())}" data-token-creator="" data-token-address="${t.mint.toLowerCase()}">
+      <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg,#6366f1,#a855f7);display:flex;align-items:center;justify-content:center;font-size:64px;position:relative;">
         ${iconHtml}
-        <span style="${t.icon ? 'display:none;' : ''}position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">🪐</span>
+        <span style="${t.icon ? 'display:none;' : ''}position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">🪙</span>
       </div>
       <div class="token-card-body">
         <div class="token-card-name">${escapeHtml(t.name || t.symbol || shortenAddress(t.mint))}${t.symbol ? ` <span class="token-card-ticker">${escapeHtml(t.symbol)}</span>` : ''}</div>
@@ -222,59 +221,12 @@ async function renderJupiterMarketBoard(grid) {
           </div>
           <div class="token-stat" style="color:${changeColor};">${changeSign}${t.change24h.toFixed(1)}%</div>
         </div>
-        <div class="market-buy-row" onclick="event.stopPropagation()">
-          <input type="number" class="form-input market-buy-amount" id="marketAmount-${domId}" placeholder="SOL" min="0" step="0.01" style="flex:1;">
-          <button type="button" class="btn market-buy-btn" id="marketBuyBtn-${domId}" disabled title="Connect a wallet above first" onclick="handleMarketBuyClick('${t.mint}', '${escapeHtml(t.name || t.symbol).replace(/'/g, "\\'")}')">Buy</button>
-        </div>
-        <p class="market-buy-status" id="marketStatus-${domId}"></p>
       </div>
     </div>`;
   }).join('');
 
-  grid.innerHTML = walletBannerHtml + cardsHtml;
-  updateMarketWalletUI();
-
   const q = new URLSearchParams(window.location.search).get('q');
   if (q) applyTokenSearchFilter(q);
-}
-
-// Reads the per-card amount input, confirms with the user (real money —
-// unmissable, on every single trade, no "don't ask again"), then executes
-// a real Jupiter swap via jupiter-trade.js and reports the result inline.
-async function handleMarketBuyClick(mint, tokenLabel) {
-  const domId = mint.replace(/[^a-zA-Z0-9]/g, '');
-  const amountInput = document.getElementById(`marketAmount-${domId}`);
-  const buyBtn = document.getElementById(`marketBuyBtn-${domId}`);
-  const statusEl = document.getElementById(`marketStatus-${domId}`);
-  const amount = parseFloat(amountInput?.value);
-
-  if (!isFinite(amount) || amount <= 0) {
-    if (statusEl) { statusEl.textContent = 'Enter a SOL amount greater than 0.'; statusEl.style.color = 'var(--red)'; }
-    return;
-  }
-  const confirmed = window.confirm(
-    `Buy ${tokenLabel} with ${amount} SOL?\n\nThis is a REAL trade on Solana MAINNET using REAL SOL from your connected wallet (${veloMainnetWallet?.provider || 'unknown'}). This is not test money and cannot be undone.`
-  );
-  if (!confirmed) return;
-
-  buyBtn.disabled = true;
-  const originalLabel = buyBtn.textContent;
-  buyBtn.textContent = 'Swapping…';
-  if (statusEl) { statusEl.textContent = 'Sending your swap — approve it in your wallet…'; statusEl.style.color = 'var(--text-muted)'; }
-
-  try {
-    const { signature } = await executeJupiterBuy({ outputMint: mint, solAmount: amount });
-    if (statusEl) {
-      statusEl.innerHTML = `✅ Sent — <a href="https://solscan.io/tx/${signature}" target="_blank" rel="noopener" style="color:var(--green);text-decoration:underline;">view on Solscan</a>`;
-      statusEl.style.color = 'var(--green)';
-    }
-  } catch (err) {
-    console.error('Jupiter swap failed:', err);
-    if (statusEl) { statusEl.textContent = 'Failed: ' + (err?.message || 'unknown error'); statusEl.style.color = 'var(--red)'; }
-  } finally {
-    buyBtn.disabled = !veloMainnetWallet;
-    buyBtn.textContent = originalLabel;
-  }
 }
 
 async function renderRealTokenBoard(tab) {

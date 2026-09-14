@@ -13,6 +13,13 @@
    extension, in the user's own UI, under their own control. Velo's code
    never sees or holds a real private key.
 
+   Loaded on both index.html (for a possible future board-level entry
+   point) and token.html — the actual buy/sell UI lives on token.html's
+   trade panel now, wired up in token-page.js's initJupiterTokenPage,
+   which appears whenever a mint isn't a Velo bonding-curve token but is
+   a real token Jupiter knows about: same page, same Buy/Sell panel a
+   Velo-native token uses, just backed by a real swap instead.
+
    IMPORTANT — could not verify live: this sandbox has no network access
    to Jupiter's API (see jupiter.js's own note), so the Quote/Swap API
    request and response shapes below are best-effort from Jupiter's
@@ -128,6 +135,15 @@ function updateMarketWalletUI() {
     btn.disabled = !veloMainnetWallet;
     btn.title = veloMainnetWallet ? '' : 'Connect a wallet above first';
   });
+  // token.html's single Buy/Sell button, when viewing a Jupiter-sourced
+  // (non-Velo) token — see token-page.js's initJupiterTokenPage, which
+  // marks it with data-jupiter-mode so this doesn't touch the button on
+  // an ordinary Velo bonding-curve token page.
+  const tradeBtn = document.getElementById('tradeBtn');
+  if (tradeBtn && tradeBtn.dataset.jupiterMode === '1') {
+    tradeBtn.disabled = !veloMainnetWallet;
+    tradeBtn.title = veloMainnetWallet ? '' : 'Connect a wallet above first';
+  }
 }
 
 // ── Quote + swap, via Jupiter's Swap API v1 ──
@@ -159,29 +175,45 @@ function base64ToBytes(b64) {
   return bytes;
 }
 
-// Real SOL -> outputMint swap, signed by the connected external wallet —
-// never Velo's own custodial devnet wallet. Returns { signature, quote }.
-async function executeJupiterBuy({ outputMint, solAmount, slippageBps = DEFAULT_SWAP_SLIPPAGE_BPS }) {
-  if (!veloMainnetWallet) throw new Error('Connect a wallet first.');
-  const amountLamports = Math.round(Number(solAmount) * solanaWeb3.LAMPORTS_PER_SOL);
-  if (!(amountLamports > 0)) throw new Error('Enter a SOL amount greater than 0.');
-
-  const quote = await fetchJupiterQuote({ inputMint: WSOL_MINT, outputMint, amountLamports, slippageBps });
-  const swapTxB64 = await buildJupiterSwapTransaction({ quoteResponse: quote, userPublicKey: veloMainnetWallet.publicKey });
+// Signs (and sends, if the wallet supports doing both in one call) a
+// Jupiter-built VersionedTransaction with the connected external wallet —
+// never Velo's own custodial devnet wallet. Shared by buy and sell below.
+async function signAndSendWithMainnetWallet(swapTxB64) {
   const tx = solanaWeb3.VersionedTransaction.deserialize(base64ToBytes(swapTxB64));
-
   const instance = veloMainnetWallet.instance;
-  let signature;
   if (typeof instance.signAndSendTransaction === 'function') {
     const result = await instance.signAndSendTransaction(tx);
-    signature = result?.signature || result;
-  } else if (typeof instance.signTransaction === 'function') {
+    return result?.signature || result;
+  }
+  if (typeof instance.signTransaction === 'function') {
     const signedTx = await instance.signTransaction(tx);
     const connection = new solanaWeb3.Connection(SOLANA_MAINNET_RPC_ENDPOINT, 'confirmed');
-    signature = await connection.sendRawTransaction(signedTx.serialize());
-  } else {
-    throw new Error('This connected wallet does not support signing transactions.');
+    return connection.sendRawTransaction(signedTx.serialize());
   }
+  throw new Error('This connected wallet does not support signing transactions.');
+}
 
+async function executeJupiterSwap({ inputMint, outputMint, amountRaw, slippageBps = DEFAULT_SWAP_SLIPPAGE_BPS }) {
+  if (!veloMainnetWallet) throw new Error('Connect a wallet first.');
+  if (!(amountRaw > 0)) throw new Error('Enter an amount greater than 0.');
+
+  const quote = await fetchJupiterQuote({ inputMint, outputMint, amountLamports: amountRaw, slippageBps });
+  const swapTxB64 = await buildJupiterSwapTransaction({ quoteResponse: quote, userPublicKey: veloMainnetWallet.publicKey });
+  const signature = await signAndSendWithMainnetWallet(swapTxB64);
   return { signature, quote };
+}
+
+// Real SOL -> outputMint swap. Returns { signature, quote }.
+async function executeJupiterBuy({ outputMint, solAmount, slippageBps = DEFAULT_SWAP_SLIPPAGE_BPS }) {
+  const amountLamports = Math.round(Number(solAmount) * solanaWeb3.LAMPORTS_PER_SOL);
+  return executeJupiterSwap({ inputMint: WSOL_MINT, outputMint, amountRaw: amountLamports, slippageBps });
+}
+
+// Real inputMint -> SOL swap (selling a token you hold in the connected
+// wallet). `decimals` is that token's own decimals (from Jupiter's token
+// data), needed to convert the human amount into raw base units. Returns
+// { signature, quote }.
+async function executeJupiterSell({ inputMint, tokenAmount, decimals, slippageBps = DEFAULT_SWAP_SLIPPAGE_BPS }) {
+  const amountRaw = Math.round(Number(tokenAmount) * 10 ** decimals);
+  return executeJupiterSwap({ inputMint, outputMint: WSOL_MINT, amountRaw, slippageBps });
 }
