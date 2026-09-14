@@ -306,6 +306,70 @@ function loadTokenMeta(mint) {
   }
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ── Favorites — which real (on-chain) tokens this visitor starred on their
+// token page. Kept client-side like the wallet and token-meta caches above:
+// a real, persisted list, just local to this browser (not shared across
+// devices, no backend involved). ──
+const FAVORITES_STORAGE_KEY = 'velo_favorite_tokens';
+
+function getFavoriteTokens() {
+  try {
+    const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    console.error('Failed to load favorites:', err);
+    return [];
+  }
+}
+
+function isFavoriteToken(mint) {
+  return getFavoriteTokens().includes(mint);
+}
+
+// Adds/removes `mint` from the favorites list and returns whether it's now
+// favorited (true) or was just removed (false).
+function toggleFavoriteToken(mint) {
+  const favorites = getFavoriteTokens();
+  const idx = favorites.indexOf(mint);
+  if (idx === -1) favorites.push(mint); else favorites.splice(idx, 1);
+  try {
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+  } catch (err) {
+    console.error('Failed to save favorites:', err);
+  }
+  return idx === -1;
+}
+
+// Renders the real favorited tokens (name/ticker from the same localStorage
+// metadata token.html itself reads) into a token-grid — used by profile.html.
+// Unlike generateTokenGrid, this is genuinely the visitor's own data, not
+// randomly generated mock cards.
+function renderFavoriteTokens(gridId) {
+  const grid = document.getElementById(gridId || 'favTokenGrid');
+  if (!grid) return;
+  const favorites = getFavoriteTokens();
+  if (!favorites.length) {
+    grid.innerHTML = '<p style="grid-column:1/-1;color:var(--text-muted);font-size:14px;padding:32px 0;text-align:center;">No favorites yet — open a token and tap the ☆ next to its name to save it here.</p>';
+    return;
+  }
+  grid.innerHTML = favorites.map((mint) => {
+    const meta = loadTokenMeta(mint) || {};
+    const name = meta.name || shortenAddress(mint);
+    const ticker = meta.ticker || '';
+    return `<div class="token-card fade-in" onclick="window.location='token.html?mint=${encodeURIComponent(mint)}'">
+      <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg,#6366f1,#a855f7);display:flex;align-items:center;justify-content:center;font-size:56px;">🪙</div>
+      <div class="token-card-body">
+        <div class="token-card-name">${escapeHtml(name)}${ticker ? ` <span class="token-card-ticker">$${escapeHtml(ticker)}</span>` : ''}</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:4px;">${shortenAddress(mint)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 function getOrCreateWallet() {
   let keypair = loadStoredWallet();
   if (!keypair) {

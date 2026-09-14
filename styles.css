@@ -647,6 +647,19 @@ input, textarea, select { font-family: inherit; }
 }
 .chart-token-name { font-weight: 700; font-size: 18px; }
 .chart-token-ticker { color: var(--text-muted); font-size: 14px; }
+.favorite-star-btn {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  margin-left: 4px;
+  transition: color var(--transition), transform var(--transition);
+}
+.favorite-star-btn:hover { color: var(--yellow, #facc15); transform: scale(1.1); }
+.favorite-star-btn.active { color: var(--yellow, #facc15); }
 .chart-token-price {
   font-size: 24px;
   font-weight: 800;
