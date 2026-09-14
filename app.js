@@ -164,9 +164,77 @@ function formatSolShort(n) {
   return n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+// ── "🪐 Market" tab — real Solana tokens from the wider market (not just
+// ones created through Velo), via Jupiter's Token API (see jupiter.js).
+// Read-only discovery: real price/market cap/24h change, no buy button —
+// Jupiter only has liquidity on mainnet, while the rest of this app runs
+// on devnet with free test SOL, so wiring up real swaps here would mean
+// real money and needs its own explicit decision first. Clicking a card
+// links out to Solscan instead of a Velo token page, since these aren't
+// bonding-curve tokens this app can chart/trade itself. ──
+let veloJupiterTokens = null; // cached for the session, like veloBoardCurves above
+
+async function renderJupiterMarketBoard(grid) {
+  grid.innerHTML = '<p style="grid-column:1/-1;color:var(--text-muted);font-size:14px;padding:32px 0;text-align:center;">Loading the market from Jupiter…</p>';
+
+  if (veloJupiterTokens === null) {
+    try {
+      veloJupiterTokens = await fetchJupiterTrendingTokens({ limit: 24 });
+    } catch (err) {
+      console.error('Failed to load the Jupiter market board:', err);
+      grid.innerHTML = '<p style="grid-column:1/-1;color:var(--red);font-size:14px;padding:32px 0;text-align:center;">Could not reach Jupiter right now. Check your connection and try again.</p>';
+      return;
+    }
+  }
+
+  if (!veloJupiterTokens.length) {
+    grid.innerHTML = '<p style="grid-column:1/-1;color:var(--text-muted);font-size:14px;padding:32px 0;text-align:center;">Jupiter didn\'t return any tokens right now — try again shortly.</p>';
+    return;
+  }
+
+  grid.innerHTML = veloJupiterTokens.map((t, i) => {
+    const changeColor = t.change24h > 0 ? 'var(--green)' : t.change24h < 0 ? 'var(--red)' : 'var(--text-muted)';
+    const changeSign = t.change24h > 0 ? '+' : '';
+    const iconHtml = t.icon
+      ? `<img src="${escapeHtml(t.icon)}" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">`
+      : '';
+    return `<div class="token-card fade-in" style="animation-delay:${i * 50}ms" onclick="window.open('https://solscan.io/token/${t.mint}', '_blank', 'noopener')" data-token-name="${escapeHtml(t.name.toLowerCase())}" data-token-ticker="${escapeHtml(t.symbol.toLowerCase())}" data-token-creator="" data-token-address="${t.mint.toLowerCase()}">
+      <div class="token-card-badge">🪐 Jupiter</div>
+      <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg,#0ea5e9,#6366f1);display:flex;align-items:center;justify-content:center;font-size:56px;position:relative;">
+        ${iconHtml}
+        <span style="${t.icon ? 'display:none;' : ''}position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">🪐</span>
+      </div>
+      <div class="token-card-body">
+        <div class="token-card-name">${escapeHtml(t.name || t.symbol || shortenAddress(t.mint))}${t.symbol ? ` <span class="token-card-ticker">${escapeHtml(t.symbol)}</span>` : ''}</div>
+        <button type="button" class="token-card-address" onclick="copyTokenCardAddress(event, this, '${t.mint}')" title="Copy contract address">${shortenAddress(t.mint)} 📋</button>
+        <div class="token-card-stats" style="margin-top:10px;">
+          <div class="token-stat">
+            <span class="token-stat-label">price: </span>
+            <span class="token-stat-value">${formatUsd(t.priceUsd)}</span>
+          </div>
+          <div class="token-stat">
+            <span class="token-stat-label">mkt cap: </span>
+            <span class="token-stat-value">${formatUsd(t.marketCapUsd)}</span>
+          </div>
+          <div class="token-stat" style="color:${changeColor};">${changeSign}${t.change24h.toFixed(1)}%</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const q = new URLSearchParams(window.location.search).get('q');
+  if (q) applyTokenSearchFilter(q);
+}
+
 async function renderRealTokenBoard(tab) {
   const grid = document.getElementById('tokenGrid');
   if (!grid) return;
+
+  if (tab === 'market') {
+    await renderJupiterMarketBoard(grid);
+    return;
+  }
+
   grid.innerHTML = '<p style="grid-column:1/-1;color:var(--text-muted);font-size:14px;padding:32px 0;text-align:center;">Loading tokens from chain…</p>';
 
   if (veloBoardCurves === null) {
