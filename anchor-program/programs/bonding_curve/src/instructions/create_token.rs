@@ -133,6 +133,7 @@ pub fn handler(
     bonding_curve.real_sol_reserves = 0;
     bonding_curve.token_total_supply = total_supply;
     bonding_curve.complete = false;
+    bonding_curve.created_at = Clock::get()?.unix_timestamp;
     bonding_curve.bump = ctx.bumps.bonding_curve;
 
     // 5. تفعيل خزينة الرسوم المُقسَّمة (Fee Splitter) — مستفيد أساسي واحد

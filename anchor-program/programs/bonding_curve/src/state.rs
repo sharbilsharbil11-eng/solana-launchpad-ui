@@ -46,11 +46,16 @@ pub struct BondingCurve {
     /// true إذا اكتمل المنحنى (وصل لعتبة التخرّج) وتوقف التداول عليه
     pub complete: bool,
 
+    /// وقت إنشاء المنحنى (Unix timestamp عبر Clock::get()) — يستخدمه الواجهة
+    /// الأمامية لترتيب العملات الحقيقية بتاب "New" على لوحة العرض، بدون أي
+    /// مؤشر (indexer) خارجي.
+    pub created_at: i64,
+
     pub bump: u8,
 }
 
 impl BondingCurve {
-    pub const SIZE: usize = 8 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
+    pub const SIZE: usize = 8 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 1 + 8 + 1;
 }
 
 /// حجز قابل للمطالبة: حصة من التوكن (و/أو مبلغ SOL ثابت) محجوزة باسم حساب X معيّن

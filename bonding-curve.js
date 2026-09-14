@@ -264,6 +264,10 @@ function readU64LE(buf, offset) {
   return big;
 }
 
+function readI64LE(buf, offset) {
+  return BigInt.asIntN(64, readU64LE(buf, offset));
+}
+
 function decodeGlobal(data) {
   const b = new Uint8Array(data);
   let o = 8; // discriminator
@@ -287,8 +291,9 @@ function decodeBondingCurve(data) {
   const realSolReserves = readU64LE(b, o); o += 8;
   const tokenTotalSupply = readU64LE(b, o); o += 8;
   const complete = b[o] === 1; o += 1;
+  const createdAt = readI64LE(b, o); o += 8;
   const bump = b[o];
-  return { mint, creator, virtualTokenReserves, virtualSolReserves, realTokenReserves, realSolReserves, tokenTotalSupply, complete, bump };
+  return { mint, creator, virtualTokenReserves, virtualSolReserves, realTokenReserves, realSolReserves, tokenTotalSupply, complete, createdAt, bump };
 }
 
 const CREATOR_TYPE_FROM_TAG = ['wallet', 'x', 'tikTok', 'gmail'];
@@ -347,6 +352,45 @@ function fetchBondingCurve(connection, mint) {
 function fetchFeeSplitter(connection, mint) {
   const [fs] = getFeeSplitterPda(mint);
   return fetchDecodedAccount(connection, fs, 'FeeSplitter', decodeFeeSplitter);
+}
+
+// Matches anchor-program/src/state.rs BondingCurve::SIZE exactly (8 disc +
+// 32 mint + 32 creator + 5×u64 reserves/supply + 1 bool complete + 8 i64
+// created_at + 1 bump = 122 bytes) — used as a getProgramAccounts filter
+// below so only BondingCurve accounts come back, no other account type on
+// this program happens to be exactly this size.
+const BONDING_CURVE_ACCOUNT_SIZE = 122;
+
+// Every real token ever created through this program, read straight off
+// devnet with a single getProgramAccounts call — no backend indexer. This
+// is what makes the board's token list, and its Top/New/Graduating/
+// Graduated tabs, real instead of the old random mock cards.
+async function fetchAllBondingCurves(connection, { limit = 60 } = {}) {
+  const accounts = await connection.getProgramAccounts(BONDING_CURVE_PROGRAM_ID, {
+    filters: [{ dataSize: BONDING_CURVE_ACCOUNT_SIZE }],
+  });
+  const expected = ACCOUNT_DISCRIMINATOR.BondingCurve;
+  const curves = [];
+  for (const { pubkey, account } of accounts) {
+    const actual = Array.from(account.data.slice(0, 8));
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) continue; // extra safety against a same-size non-BondingCurve account
+    curves.push({ address: pubkey, ...decodeBondingCurve(account.data) });
+    if (curves.length >= limit) break;
+  }
+  return curves;
+}
+
+// Derived, purely computed display stats for one curve — no extra RPC
+// calls, so safe to run for every card on the board. Same formulas
+// token-page.js's applyCurveState uses for a single token's detail view.
+function curveStats(curve) {
+  const sol = Number(curve.virtualSolReserves) / Number(solanaWeb3.LAMPORTS_PER_SOL);
+  const tokens = Number(curve.virtualTokenReserves) / 10 ** TOKEN_DECIMALS;
+  const priceInSol = tokens > 0 ? sol / tokens : 0;
+  const totalSupplyTokens = Number(curve.tokenTotalSupply) / 10 ** TOKEN_DECIMALS;
+  const marketCapInSol = priceInSol * totalSupplyTokens;
+  const progressPct = Math.min(100, (Number(curve.realSolReserves) / Number(CURVE_COMPLETE_SOL_THRESHOLD_LAMPORTS)) * 100);
+  return { priceInSol, marketCapInSol, progressPct };
 }
 
 // ── High-level actions, signed by the internal Velo wallet (currentWallet from app.js) ──
