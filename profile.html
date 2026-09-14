@@ -208,7 +208,7 @@
   <script>
     generateTokenGrid(6, 'createdTokenGrid');
     generateTokenGrid(8, 'heldTokenGrid');
-    generateTokenGrid(4, 'favTokenGrid');
+    renderFavoriteTokens('favTokenGrid'); // real favorites (see the ☆ button on token.html), not mock data
 
     function switchProfileTab(btn, tab) {
       document.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));

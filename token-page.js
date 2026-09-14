@@ -140,7 +140,29 @@ function applyTokenIdentity(mintStr, meta) {
   const imgEl = document.getElementById('chartTokenImg');
   if (imgEl) imgEl.textContent = '🪙';
 
+  const starBtn = document.getElementById('favoriteStarBtn');
+  if (starBtn) {
+    starBtn.style.display = '';
+    updateFavoriteStarUI(isFavoriteToken(mintStr));
+  }
+
   applySocialLinks(meta);
+}
+
+// Wired to favoriteStarBtn's onclick — only active once applyTokenIdentity
+// has revealed the button for a real (?mint=...) token, at which point
+// veloRealToken.mint is already set.
+function toggleFavoriteCurrentToken() {
+  if (!veloRealToken || !veloRealToken.mint) return;
+  updateFavoriteStarUI(toggleFavoriteToken(veloRealToken.mint));
+}
+
+function updateFavoriteStarUI(isFavorited) {
+  const btn = document.getElementById('favoriteStarBtn');
+  if (!btn) return;
+  btn.textContent = isFavorited ? '★' : '☆';
+  btn.classList.toggle('active', isFavorited);
+  btn.title = isFavorited ? 'Remove from favorites' : 'Add to favorites';
 }
 
 // Only what the creator actually filled in on create.html shows up here —
