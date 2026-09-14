@@ -88,7 +88,20 @@ async function initRealTokenPage(mintStr) {
   }
 
   if (!curve) {
-    showTokenLoadError('No bonding curve found for this token on ' + SOLANA_RPC_ENDPOINT.replace('https://', '') + ' — it may not be deployed on this network.');
+    // Not a Velo bonding-curve token — before giving up, check whether
+    // it's a real token tradeable on the wider market via Jupiter. Same
+    // page either way; see initJupiterTokenPage for what differs.
+    let jupiterToken = null;
+    try {
+      jupiterToken = await fetchJupiterTokenByMint(mintStr);
+    } catch (err) {
+      console.error('Jupiter lookup failed:', err);
+    }
+    if (jupiterToken) {
+      initJupiterTokenPage(mintPubkey, jupiterToken);
+      return;
+    }
+    showTokenLoadError('This token wasn\'t found on Velo or on the wider Solana market — check the address.');
     return;
   }
 
@@ -299,6 +312,120 @@ function showTradeStatus(text, color) {
   el.textContent = text;
 }
 
+// A mint that isn't a Velo bonding-curve token, but is a real token
+// Jupiter knows about — same page as a Velo-native token (chart, Buy/Sell
+// panel, Token Info), just backed by real Jupiter market data and, when
+// trading, a real mainnet swap instead of Velo's own program. See
+// jupiter.js (data) and jupiter-trade.js (the actual swap + wallet
+// connect this wires the trade button to).
+function initJupiterTokenPage(mintPubkey, jt) {
+  veloRealToken.jupiter = jt;
+
+  const nameEl = document.getElementById('chartTokenName');
+  if (nameEl) {
+    nameEl.innerHTML = escapeHtml(jt.name || jt.symbol || shortenAddress(jt.mint)) + (jt.symbol ? ` <span class="chart-token-ticker">${escapeHtml(jt.symbol)}</span>` : '');
+  }
+  document.title = (jt.symbol ? '$' + jt.symbol : (jt.name || shortenAddress(jt.mint))) + ' — Velo';
+  const imgEl = document.getElementById('chartTokenImg');
+  if (imgEl) {
+    if (jt.icon) {
+      imgEl.innerHTML = `<img src="${escapeHtml(jt.icon)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:8px;" onerror="this.parentElement.textContent='🪙';">`;
+    } else {
+      imgEl.textContent = '🪙';
+    }
+  }
+
+  const starBtn = document.getElementById('favoriteStarBtn');
+  if (starBtn) { starBtn.style.display = ''; updateFavoriteStarUI(isFavoriteToken(jt.mint)); }
+
+  const priceEl = document.getElementById('chartTokenPrice');
+  if (priceEl) { priceEl.textContent = formatUsd(jt.priceUsd); priceEl.style.color = ''; }
+
+  setText('infoMarketCap', formatUsd(jt.marketCapUsd));
+  setText('infoVolume', jt.liquidityUsd ? formatUsd(jt.liquidityUsd) : '—');
+  setText('infoVolumeLabel', 'Liquidity');
+  setText('infoLiquidity', jt.liquidityUsd ? formatUsd(jt.liquidityUsd) : '—');
+  setText('infoSupply', jt.totalSupply ? formatWholeTokens(jt.totalSupply) : '—');
+  setText('infoHolders', '—'); // not available from Jupiter's token API — honestly omitted, not guessed
+  setText('infoCreator', '—'); // not a Velo token — no creator to attribute here
+  const statusEl = document.getElementById('infoStatus');
+  if (statusEl) { statusEl.textContent = '🪐 Live on Jupiter'; statusEl.className = 'token-info-val'; }
+
+  // No bonding curve for a token that already trades on the open market —
+  // hide the progress block rather than show a meaningless percentage.
+  const progressBlock = document.getElementById('infoProgressBlock');
+  if (progressBlock) progressBlock.style.display = 'none';
+
+  // No real historical trade data for this mint (it isn't traded through
+  // Velo's own program) — render the same "flat, current price" fallback
+  // a brand-new Velo token with zero trades yet already uses, rather than
+  // fabricating a history.
+  renderChart([], jt.priceUsd);
+
+  // Trades/Holders tabs are Velo-program-specific (reconstructed from
+  // real transactions against Velo's bonding curve) — don't apply here.
+  const tradesBody = document.getElementById('tradesTableBody');
+  if (tradesBody) tradesBody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:24px 0;">Trade history isn't available here for a token outside Velo's own program — <a href="https://solscan.io/token/${jt.mint}" target="_blank" rel="noopener" style="color:var(--green);">view on Solscan</a>.</td></tr>`;
+  const holderList = document.getElementById('holderList');
+  if (holderList) holderList.innerHTML = `<p style="color:var(--text-muted);padding:16px 0;text-align:center;">Holder data isn't available here for a token outside Velo's own program — <a href="https://solscan.io/token/${jt.mint}" target="_blank" rel="noopener" style="color:var(--green);">view on Solscan</a>.</p>`;
+
+  wireJupiterTradeButton(jt);
+}
+
+// Wires the same Buy/Sell panel a Velo-native token uses to a real
+// Jupiter swap instead — connect an external mainnet wallet (never
+// Velo's own custodial devnet wallet), confirm the exact real-money
+// amount every time, then sign in that wallet's own UI.
+function wireJupiterTradeButton(jt) {
+  const btn = document.getElementById('tradeBtn');
+  const amountInput = document.getElementById('tradeAmountInput');
+  if (!btn || !amountInput) return;
+
+  btn.dataset.jupiterMode = '1';
+  const banner = document.getElementById('marketWalletBanner');
+  if (banner) banner.style.display = '';
+  updateMarketWalletUI();
+
+  btn.onclick = async () => {
+    if (!veloMainnetWallet) { openMainnetWalletPicker(); return; }
+
+    const amount = parseFloat(amountInput.value);
+    const mode = btn.dataset.mode || 'buy';
+    if (!amount || amount <= 0) { showTradeStatus('Enter an amount first.', 'var(--red)'); return; }
+
+    const tokenLabel = jt.name || jt.symbol || shortenAddress(jt.mint);
+    const confirmMsg = mode === 'buy'
+      ? `Buy ${tokenLabel} with ${amount} SOL?\n\nThis is a REAL trade on Solana MAINNET using REAL SOL from your connected wallet (${veloMainnetWallet.provider}). This is not test money and cannot be undone.`
+      : `Sell ${amount} ${jt.symbol || tokenLabel} for SOL?\n\nThis is a REAL trade on Solana MAINNET from your connected wallet (${veloMainnetWallet.provider}). This is not test money and cannot be undone.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = mode === 'buy' ? 'Buying…' : 'Selling…';
+    showTradeStatus('Sending your swap — approve it in your wallet…', 'var(--text-secondary)');
+
+    try {
+      const { signature } = mode === 'buy'
+        ? await executeJupiterBuy({ outputMint: jt.mint, solAmount: amount })
+        : await executeJupiterSell({ inputMint: jt.mint, tokenAmount: amount, decimals: jt.decimals });
+
+      const statusEl = document.getElementById('tradeStatus');
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--green)';
+        statusEl.innerHTML = `✅ Sent — <a href="https://solscan.io/tx/${signature}" target="_blank" rel="noopener" style="color:var(--green);text-decoration:underline;">view on Solscan</a>`;
+      }
+      amountInput.value = '';
+    } catch (err) {
+      console.error('Jupiter swap failed:', err);
+      showTradeStatus('Failed: ' + (err && err.message ? err.message : 'Unknown error.'), 'var(--red)');
+    } finally {
+      btn.disabled = !veloMainnetWallet;
+      btn.textContent = originalText;
+    }
+  };
+}
+
 // Buying spends SOL, selling spends the token itself — keep the amount
 // input's unit label honest about which one is being entered.
 function onTradeModeChanged(mode) {
@@ -307,7 +434,7 @@ function onTradeModeChanged(mode) {
   if (mode === 'buy') {
     label.textContent = 'SOL';
   } else {
-    const ticker = (veloRealToken && loadTokenMeta(veloRealToken.mint)?.ticker) || 'TOKEN';
+    const ticker = (veloRealToken && loadTokenMeta(veloRealToken.mint)?.ticker) || veloRealToken?.jupiter?.symbol || 'TOKEN';
     label.textContent = ticker;
   }
 }

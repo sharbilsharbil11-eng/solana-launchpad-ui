@@ -250,6 +250,9 @@
 
           <!-- Buy/Sell card -->
           <div class="trade-card">
+            <!-- Only shown for a Jupiter-sourced (non-Velo) token — see
+                 token-page.js's initJupiterTokenPage / jupiter-trade.js -->
+            <div id="marketWalletBanner" class="market-wallet-banner" style="display:none;"></div>
             <div class="trade-toggle">
               <button class="trade-toggle-btn active-buy" onclick="setTradeMode('buy', this)">Buy</button>
               <button class="trade-toggle-btn" onclick="setTradeMode('sell', this)">Sell</button>
@@ -322,8 +325,10 @@
               <span class="token-info-val green" id="infoStatus">🟢 Active</span>
             </div>
 
-            <!-- Bonding curve progress -->
-            <div style="margin-top:16px;">
+            <!-- Bonding curve progress — only meaningful for a Velo-native
+                 token; hidden entirely in Jupiter mode (see token-page.js's
+                 initJupiterTokenPage) rather than showing a fake percentage. -->
+            <div style="margin-top:16px;" id="infoProgressBlock">
               <div class="bonding-progress-header">
                 <span>Bonding Curve Progress</span>
                 <span style="color:var(--green);font-weight:700;" id="infoProgressPct">72.4%</span>
@@ -366,6 +371,8 @@
   <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
   <script src="app.js"></script>
   <script src="bonding-curve.js"></script>
+  <script src="jupiter.js"></script>
+  <script src="jupiter-trade.js"></script>
   <script src="token-page.js"></script>
   <script>
     function switchDetailTab(btn, tab) {

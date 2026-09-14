@@ -574,6 +574,24 @@ input, textarea, select { font-family: inherit; }
   font-size: 11px;
 }
 
+/* Real-money mainnet wallet status (jupiter-trade.js) — shown on
+   token.html's trade panel when viewing a Jupiter-sourced (non-Velo)
+   token; see token-page.js's initJupiterTokenPage. */
+.market-wallet-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: default;
+}
+
 /* ================================================================
    KING OF THE HILL BANNER
    ================================================================ */

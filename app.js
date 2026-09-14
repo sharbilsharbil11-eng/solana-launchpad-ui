@@ -133,6 +133,7 @@ function generateTokenGrid(count, gridId) {
 }
 
 function loadMoreTokens() {
+  if (veloBoardCurves !== null) return; // real board already shows every token created — getProgramAccounts returns them all in one call, no pagination to load
   generateTokenGrid(8);
 }
 
@@ -144,18 +145,195 @@ function copyTokenCardAddress(e, btn, address) {
   setTimeout(() => { btn.textContent = original; }, 1200);
 }
 
+// ── Real token board (index.html) — every token actually created through
+// the bonding-curve program, read straight off devnet via
+// fetchAllBondingCurves (a single getProgramAccounts call, no backend
+// indexer). Name/ticker/description come from this browser's own local
+// token-meta cache (same one create.html/token.html use), falling back to
+// the shortened mint for a token created elsewhere. There's no real
+// trade-volume or holder-count data available at board scale without an
+// indexer, so — same philosophy as the rest of this app — those numbers
+// just aren't shown rather than faked. ──
+let veloBoardCurves = null; // cached across tab switches; each tab just re-sorts/filters client-side
+
+function formatSolShort(n) {
+  if (!isFinite(n)) return '0';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  if (n >= 1) return n.toFixed(2);
+  if (n === 0) return '0';
+  return n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+// ── "🪐 Market" tab — real Solana tokens from the wider market (not just
+// ones created through Velo), via Jupiter's Token API (see jupiter.js).
+// Read-only discovery: real price/market cap/24h change, no buy button —
+// Jupiter only has liquidity on mainnet, while the rest of this app runs
+// on devnet with free test SOL, so wiring up real swaps here would mean
+// real money and needs its own explicit decision first. Clicking a card
+// links out to Solscan instead of a Velo token page, since these aren't
+// bonding-curve tokens this app can chart/trade itself. ──
+let veloJupiterTokens = null; // cached for the session, like veloBoardCurves above
+
+async function renderJupiterMarketBoard(grid) {
+  grid.innerHTML = '<p style="grid-column:1/-1;color:var(--text-muted);font-size:14px;padding:32px 0;text-align:center;">Loading the market from Jupiter…</p>';
+
+  if (veloJupiterTokens === null) {
+    try {
+      veloJupiterTokens = await fetchJupiterTrendingTokens({ limit: 24 });
+    } catch (err) {
+      console.error('Failed to load the Jupiter market board:', err);
+      grid.innerHTML = '<p style="grid-column:1/-1;color:var(--red);font-size:14px;padding:32px 0;text-align:center;">Could not reach Jupiter right now. Check your connection and try again.</p>';
+      return;
+    }
+  }
+
+  if (!veloJupiterTokens.length) {
+    grid.innerHTML = '<p style="grid-column:1/-1;color:var(--text-muted);font-size:14px;padding:32px 0;text-align:center;">Jupiter didn\'t return any tokens right now — try again shortly.</p>';
+    return;
+  }
+
+  // Cards look and behave exactly like Velo's own token cards — same
+  // template, same click-through to token.html — the only difference is
+  // where the data (and, on that page, the trade) comes from. See
+  // token-page.js's initJupiterTokenPage for the token.html side of this.
+  grid.innerHTML = veloJupiterTokens.map((t, i) => {
+    const changeColor = t.change24h > 0 ? 'var(--green)' : t.change24h < 0 ? 'var(--red)' : 'var(--text-muted)';
+    const changeSign = t.change24h > 0 ? '+' : '';
+    const iconHtml = t.icon
+      ? `<img src="${escapeHtml(t.icon)}" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">`
+      : '';
+    return `<div class="token-card fade-in" style="animation-delay:${i * 50}ms" onclick="window.location='token.html?mint=${t.mint}'" data-token-name="${escapeHtml(t.name.toLowerCase())}" data-token-ticker="${escapeHtml(t.symbol.toLowerCase())}" data-token-creator="" data-token-address="${t.mint.toLowerCase()}">
+      <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg,#6366f1,#a855f7);display:flex;align-items:center;justify-content:center;font-size:64px;position:relative;">
+        ${iconHtml}
+        <span style="${t.icon ? 'display:none;' : ''}position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">🪙</span>
+      </div>
+      <div class="token-card-body">
+        <div class="token-card-name">${escapeHtml(t.name || t.symbol || shortenAddress(t.mint))}${t.symbol ? ` <span class="token-card-ticker">${escapeHtml(t.symbol)}</span>` : ''}</div>
+        <button type="button" class="token-card-address" onclick="copyTokenCardAddress(event, this, '${t.mint}')" title="Copy contract address">${shortenAddress(t.mint)} 📋</button>
+        <div class="token-card-stats" style="margin-top:10px;">
+          <div class="token-stat">
+            <span class="token-stat-label">price: </span>
+            <span class="token-stat-value">${formatUsd(t.priceUsd)}</span>
+          </div>
+          <div class="token-stat">
+            <span class="token-stat-label">mkt cap: </span>
+            <span class="token-stat-value">${formatUsd(t.marketCapUsd)}</span>
+          </div>
+          <div class="token-stat" style="color:${changeColor};">${changeSign}${t.change24h.toFixed(1)}%</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const q = new URLSearchParams(window.location.search).get('q');
+  if (q) applyTokenSearchFilter(q);
+}
+
+async function renderRealTokenBoard(tab) {
+  const grid = document.getElementById('tokenGrid');
+  if (!grid) return;
+
+  if (tab === 'market') {
+    await renderJupiterMarketBoard(grid);
+    return;
+  }
+
+  grid.innerHTML = '<p style="grid-column:1/-1;color:var(--text-muted);font-size:14px;padding:32px 0;text-align:center;">Loading tokens from chain…</p>';
+
+  if (veloBoardCurves === null) {
+    try {
+      const connection = new solanaWeb3.Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
+      veloBoardCurves = await fetchAllBondingCurves(connection);
+    } catch (err) {
+      console.error('Failed to load the real token board:', err);
+      grid.innerHTML = '<p style="grid-column:1/-1;color:var(--red);font-size:14px;padding:32px 0;text-align:center;">Could not reach Solana right now. Check your connection and try again.</p>';
+      return;
+    }
+  }
+
+  let tokens = veloBoardCurves.map((curve) => ({ curve, stats: curveStats(curve) }));
+
+  switch (tab) {
+    case 'trending': // no volume indexer — bonding-curve progress is a real, free proxy for recent activity
+      tokens.sort((a, b) => b.stats.progressPct - a.stats.progressPct);
+      break;
+    case 'top':
+      tokens.sort((a, b) => b.stats.marketCapInSol - a.stats.marketCapInSol);
+      break;
+    case 'new':
+      tokens.sort((a, b) => Number(b.curve.createdAt - a.curve.createdAt));
+      break;
+    case 'graduating':
+      tokens = tokens.filter((t) => !t.curve.complete && t.stats.progressPct >= 50);
+      tokens.sort((a, b) => b.stats.progressPct - a.stats.progressPct);
+      break;
+    case 'graduated':
+      tokens = tokens.filter((t) => t.curve.complete);
+      tokens.sort((a, b) => Number(b.curve.createdAt - a.curve.createdAt));
+      break;
+    default: // terminal
+      tokens.sort((a, b) => Number(b.curve.createdAt - a.curve.createdAt));
+  }
+
+  if (!tokens.length) {
+    grid.innerHTML = veloBoardCurves.length
+      ? '<p style="grid-column:1/-1;color:var(--text-muted);font-size:14px;padding:32px 0;text-align:center;">No tokens match this tab yet.</p>'
+      : '<p style="grid-column:1/-1;color:var(--text-muted);font-size:14px;padding:32px 0;text-align:center;">No tokens created yet — <a href="create.html" style="color:var(--green);">be the first!</a></p>';
+    return;
+  }
+
+  grid.innerHTML = tokens.map(({ curve, stats }, i) => {
+    const mintStr = curve.mint.toBase58();
+    const meta = loadTokenMeta(mintStr) || {};
+    const name = meta.name || shortenAddress(mintStr);
+    const ticker = meta.ticker || '';
+    const desc = meta.description || '';
+    const progress = Math.round(stats.progressPct);
+    const creatorStr = curve.creator.toBase58();
+    return `<div class="token-card fade-in" style="animation-delay:${i * 50}ms" onclick="window.location='token.html?mint=${mintStr}'" data-token-name="${escapeHtml(name.toLowerCase())}" data-token-ticker="${escapeHtml(ticker.toLowerCase())}" data-token-creator="${creatorStr.toLowerCase()}" data-token-address="${mintStr.toLowerCase()}">
+      ${curve.complete ? '<div class="token-card-badge king">🎓 Graduated</div>' : ''}
+      <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg,#6366f1,#a855f7);display:flex;align-items:center;justify-content:center;font-size:64px;">🪙</div>
+      <div class="token-card-body">
+        <div class="token-card-header">
+          <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#334155,#1e293b);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;">👤</div>
+          <span class="token-card-creator">${shortenAddress(creatorStr)}</span>
+        </div>
+        <div class="token-card-name">${escapeHtml(name)}${ticker ? ` <span class="token-card-ticker">${escapeHtml(ticker)}</span>` : ''}</div>
+        <button type="button" class="token-card-address" onclick="copyTokenCardAddress(event, this, '${mintStr}')" title="Copy contract address">${shortenAddress(mintStr)} 📋</button>
+        ${desc ? `<div class="token-card-desc">${escapeHtml(desc)}</div>` : ''}
+        <div class="bonding-progress">
+          <div class="bonding-progress-header">
+            <span>bonding curve</span>
+            <span style="color:${progress > 80 ? 'var(--green)' : 'var(--text-secondary)'};">${progress}%</span>
+          </div>
+          <div class="bonding-progress-bar">
+            <div class="bonding-progress-fill" style="width:${progress}%"></div>
+          </div>
+        </div>
+        <div class="token-card-stats">
+          <div class="token-stat">
+            <span class="token-stat-label">mkt cap: </span>
+            <span class="token-stat-value">${formatSolShort(stats.marketCapInSol)} SOL</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Cards render asynchronously (after the on-chain fetch above), so a
+  // cross-page ?q= search handoff needs re-applying here — the DOMContentLoaded
+  // listener elsewhere on this page fires before any of this exists.
+  const q = new URLSearchParams(window.location.search).get('q');
+  if (q) applyTokenSearchFilter(q);
+}
+
 // ── Tab switching ──
 function initTabs() {
   document.querySelectorAll('.tab-bar .tab').forEach(tab => {
     tab.addEventListener('click', function () {
       this.parentElement.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       this.classList.add('active');
-      // In a real app this would filter/sort; here we just shuffle cards
-      const grid = document.getElementById('tokenGrid');
-      if (grid) {
-        grid.innerHTML = '';
-        generateTokenGrid(12);
-      }
+      renderRealTokenBoard(this.dataset.tab);
     });
   });
 }

@@ -112,6 +112,31 @@ console.log('Global.feeBasisPoints === 50:', decodedGlobal.feeBasisPoints.toStri
 console.log('Global.creatorFeeBasisPoints === 50:', decodedGlobal.creatorFeeBasisPoints.toString() === '50');
 console.log('Global.bump === 7:', decodedGlobal.bump === 7);
 
+// BondingCurve — includes the new created_at (i64) field, added for the
+// real-data token board ("New" tab sorting, no indexer needed).
+const bcMint = Keypair.generate().publicKey;
+const bcCreator = Keypair.generate().publicKey;
+const CREATED_AT_TS = 1_757_000_000; // arbitrary fixed unix timestamp for the test
+const bondingCurveBuf = Buffer.concat([
+  Buffer.from([23, 183, 248, 55, 96, 216, 172, 96]),
+  bcMint.toBuffer(),
+  bcCreator.toBuffer(),
+  (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(1_000_000_000n); return b; })(), // virtualTokenReserves
+  (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(30_000_000_000n); return b; })(), // virtualSolReserves
+  (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(0n); return b; })(), // realTokenReserves
+  (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(0n); return b; })(), // realSolReserves
+  (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(1_000_000_000_000_000n); return b; })(), // tokenTotalSupply
+  Buffer.from([0]), // complete = false
+  (() => { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(CREATED_AT_TS)); return b; })(), // createdAt
+  Buffer.from([254]), // bump
+]);
+const decodedBondingCurve = coder.accounts.decode('BondingCurve', bondingCurveBuf);
+console.log('BondingCurve.mint matches:', decodedBondingCurve.mint.equals(bcMint));
+console.log('BondingCurve.creator matches:', decodedBondingCurve.creator.equals(bcCreator));
+console.log('BondingCurve.complete === false:', decodedBondingCurve.complete === false);
+console.log('BondingCurve.createdAt matches:', decodedBondingCurve.createdAt.toString() === String(CREATED_AT_TS));
+console.log('BondingCurve.bump === 254:', decodedBondingCurve.bump === 254);
+
 // FeeSplitter with 2 active recipients (out of the fixed 6-slot array) —
 // recipient[0] Wallet (identity = 32-byte pubkey padded to 64), recipient[1]
 // X (identity = UTF-8 handle padded to 64), recipients[2..5] all-zero padding.
