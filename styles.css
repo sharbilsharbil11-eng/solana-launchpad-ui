@@ -574,6 +574,34 @@ input, textarea, select { font-family: inherit; }
   font-size: 11px;
 }
 
+/* Jupiter Market tab — real-money mainnet trading (jupiter-trade.js) */
+.market-wallet-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: default;
+}
+.market-buy-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  cursor: default;
+}
+.market-buy-amount { padding: 8px 10px; font-size: 13px; }
+.market-buy-btn { flex: 0 0 auto; padding: 8px 16px; font-size: 13px; background: var(--green); color: #0e0e16; border-color: var(--green); }
+.market-buy-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.market-buy-status { font-size: 12px; margin-top: 6px; min-height: 16px; }
+
 /* ================================================================
    KING OF THE HILL BANNER
    ================================================================ */
