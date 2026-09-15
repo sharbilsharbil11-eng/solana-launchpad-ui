@@ -69,7 +69,15 @@ mkdir -p target/deploy
 cp program-keypair.json target/deploy/bonding_curve-keypair.json
 
 echo "=== 3/7: Build ==="
-anchor build
+# --no-idl: IDL generation pulls in anchor-syn's IDL codegen, which calls a
+# proc-macro2 API (Span::source_file) that newer proc-macro2 releases removed
+# — a real version conflict against anchor-lang's own pinned thiserror
+# dependency (not just an edition2024 mismatch like the other pins in this
+# script). Skipping IDL generation sidesteps it entirely; it isn't needed to
+# build and deploy the program itself. Generate the IDL separately later
+# (`anchor idl build`) once Anchor ships a release compatible with current
+# crates.io versions, if a real IDL file is ever needed.
+anchor build --no-idl
 
 echo "=== 4/7: Verify the Program ID matches exactly ==="
 KEYS_OUTPUT="$(anchor keys list)"
