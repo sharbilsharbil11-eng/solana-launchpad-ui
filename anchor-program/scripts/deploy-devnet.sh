@@ -77,7 +77,7 @@ echo "=== 3/7: Build ==="
 # build and deploy the program itself. Generate the IDL separately later
 # (`anchor idl build`) once Anchor ships a release compatible with current
 # crates.io versions, if a real IDL file is ever needed.
-anchor build --no-idl
+anchor build --no-idl -- --features no-idl
 
 echo "=== 4/7: Verify the Program ID matches exactly ==="
 KEYS_OUTPUT="$(anchor keys list)"
