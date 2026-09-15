@@ -170,8 +170,17 @@ function updateMarketWalletUI() {
   // an ordinary Velo bonding-curve token page.
   const tradeBtn = document.getElementById('tradeBtn');
   if (tradeBtn && tradeBtn.dataset.jupiterMode === '1') {
-    tradeBtn.disabled = !veloMainnetWallet;
-    tradeBtn.title = veloMainnetWallet ? '' : 'Connect a wallet above first';
+    // Generic swap mode (token.html with no ?mint=) rebuilds the button's
+    // text/onclick around the connected-wallet state itself — connect vs.
+    // swap are different actions there, not just enabled/disabled — so
+    // hand it back to wireGenericSwapButton rather than only toggling
+    // `disabled` as the single-token flow below does.
+    if (tradeBtn.dataset.swapMode === 'generic' && typeof wireGenericSwapButton === 'function') {
+      wireGenericSwapButton();
+    } else {
+      tradeBtn.disabled = !veloMainnetWallet;
+      tradeBtn.title = veloMainnetWallet ? '' : 'Connect a wallet above first';
+    }
   }
 }
 

@@ -597,3 +597,239 @@ function renderChart(trades, currentPrice) {
   if (labelBg) labelBg.setAttribute('y', (lastY - 8).toFixed(1));
   if (labelText) { labelText.setAttribute('y', (lastY + 4).toFixed(1)); labelText.textContent = formatPriceInSol(currentPrice); }
 }
+
+/* ================================================================
+   Generic swap mode — token.html with no ?mint= (e.g. the nav bar's
+   "Trade" link). There's no single token to show a page for, so this
+   turns the trade card into a real token-to-token swap instead: pick
+   any two Solana tokens, get a live Jupiter quote, swap for real via a
+   connected external wallet. Same real-money rules as the single-token
+   Jupiter flow above: explicit confirm() every time, Velo's 1% fee
+   applies automatically (see executeJupiterSwap in jupiter-trade.js).
+   ================================================================ */
+let veloSwapState = { from: null, to: null, pickerTarget: null };
+let veloSwapQuoteTimer = null;
+let veloSwapQuoteSeq = 0;
+
+function initGenericSwapPage() {
+  document.title = 'Swap — Velo';
+  veloSwapState = { from: SOL_PSEUDO_TOKEN, to: null, pickerTarget: null };
+
+  const leftCol = document.getElementById('tokenLeftColumn');
+  if (leftCol) leftCol.style.display = 'none';
+  const infoCard = document.getElementById('tokenInfoCard');
+  if (infoCard) infoCard.style.display = 'none';
+  const socialCard = document.getElementById('socialLinksCard');
+  if (socialCard) socialCard.style.display = 'none';
+
+  document.getElementById('genericSwapPicker').style.display = '';
+  document.getElementById('tradeToggleRow').style.display = 'none';
+  document.getElementById('tradeAmountGroup').style.display = 'none';
+  document.getElementById('tradeQuickAmounts').style.display = 'none';
+  document.getElementById('tradeSlippageRow').style.display = 'none';
+
+  const banner = document.getElementById('marketWalletBanner');
+  if (banner) banner.style.display = '';
+  updateMarketWalletUI();
+
+  updateSwapTokenButton('from');
+  updateSwapTokenButton('to');
+
+  document.getElementById('swapFromTokenBtn').onclick = () => openSwapTokenPicker('from');
+  document.getElementById('swapToTokenBtn').onclick = () => openSwapTokenPicker('to');
+  document.getElementById('swapFlipBtn').onclick = swapFlipDirection;
+  document.getElementById('swapFromAmount').addEventListener('input', () => {
+    clearTimeout(veloSwapQuoteTimer);
+    veloSwapQuoteTimer = setTimeout(refreshSwapQuote, 500);
+  });
+
+  document.getElementById('swapTokenPickerClose').onclick = closeSwapTokenPicker;
+  document.getElementById('swapTokenPickerOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'swapTokenPickerOverlay') closeSwapTokenPicker();
+  });
+  let searchTimer = null;
+  document.getElementById('swapTokenSearchInput').addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    const q = e.target.value;
+    searchTimer = setTimeout(() => runSwapTokenSearch(q), 400);
+  });
+
+  wireGenericSwapButton();
+}
+
+function updateSwapTokenButton(side) {
+  const btn = document.getElementById(side === 'from' ? 'swapFromTokenBtn' : 'swapToTokenBtn');
+  const token = veloSwapState[side];
+  if (btn) btn.textContent = token ? (token.symbol || shortenAddress(token.mint)) : 'Select token';
+}
+
+function swapFlipDirection() {
+  if (!veloSwapState.to) return; // nothing to flip to yet
+  const tmp = veloSwapState.from;
+  veloSwapState.from = veloSwapState.to;
+  veloSwapState.to = tmp;
+  updateSwapTokenButton('from');
+  updateSwapTokenButton('to');
+  document.getElementById('swapFromAmount').value = '';
+  document.getElementById('swapToAmount').value = '';
+  document.getElementById('swapQuoteHint').textContent = '';
+}
+
+function openSwapTokenPicker(side) {
+  veloSwapState.pickerTarget = side;
+  document.getElementById('swapTokenSearchInput').value = '';
+  document.getElementById('swapTokenResults').innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">Loading popular tokens…</p>';
+  document.getElementById('swapTokenPickerOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  fetchJupiterTrendingTokens({ limit: 15 })
+    .then((tokens) => renderSwapTokenResults(tokens))
+    .catch((err) => {
+      console.error('Failed to load trending tokens:', err);
+      document.getElementById('swapTokenResults').innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">Could not load tokens — try searching by name or mint address.</p>';
+    });
+}
+
+function closeSwapTokenPicker() {
+  document.getElementById('swapTokenPickerOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+async function runSwapTokenSearch(query) {
+  const resultsEl = document.getElementById('swapTokenResults');
+  if (!query || !query.trim()) {
+    fetchJupiterTrendingTokens({ limit: 15 }).then(renderSwapTokenResults).catch(() => {});
+    return;
+  }
+  resultsEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">Searching…</p>';
+  try {
+    const results = await searchJupiterTokens(query);
+    renderSwapTokenResults(results);
+  } catch (err) {
+    console.error('Token search failed:', err);
+    resultsEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">Search failed — try again.</p>';
+  }
+}
+
+function renderSwapTokenResults(tokens) {
+  const resultsEl = document.getElementById('swapTokenResults');
+  const otherSide = veloSwapState.pickerTarget === 'from' ? 'to' : 'from';
+  const otherMint = veloSwapState[otherSide]?.mint;
+  const list = tokens.filter((t) => t.mint !== otherMint);
+  if (!list.length) {
+    resultsEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">No matching tokens.</p>';
+    return;
+  }
+  resultsEl.innerHTML = list.map((t) => `
+    <button type="button" class="wallet-picker-option" data-mint="${escapeHtml(t.mint)}">
+      <span class="wallet-picker-icon">${t.icon ? `<img src="${escapeHtml(t.icon)}" alt="" style="width:20px;height:20px;border-radius:50%;object-fit:cover;" onerror="this.style.display='none';">` : '🪙'}</span>
+      <span class="wallet-picker-name">${escapeHtml(t.name || t.symbol || shortenAddress(t.mint))} <span style="color:var(--text-muted);">${escapeHtml(t.symbol || '')}</span></span>
+    </button>
+  `).join('');
+  resultsEl.querySelectorAll('[data-mint]').forEach((btn) => {
+    const token = list.find((t) => t.mint === btn.dataset.mint);
+    btn.addEventListener('click', () => selectSwapToken(token));
+  });
+}
+
+function selectSwapToken(token) {
+  veloSwapState[veloSwapState.pickerTarget] = token;
+  updateSwapTokenButton(veloSwapState.pickerTarget);
+  closeSwapTokenPicker();
+  refreshSwapQuote();
+}
+
+async function refreshSwapQuote() {
+  const hint = document.getElementById('swapQuoteHint');
+  const toAmountEl = document.getElementById('swapToAmount');
+  const { from, to } = veloSwapState;
+  const amount = parseFloat(document.getElementById('swapFromAmount').value);
+
+  if (!from || !to || !amount || amount <= 0) {
+    toAmountEl.value = '';
+    if (hint) hint.textContent = '';
+    wireGenericSwapButton();
+    return;
+  }
+  // Readiness (both tokens picked + a positive amount) doesn't depend on
+  // the quote itself succeeding — enable the swap button right away rather
+  // than leaving it disabled for the round-trip, or stuck disabled forever
+  // if this call resolves after a newer one already replaced it below.
+  wireGenericSwapButton();
+
+  const seq = ++veloSwapQuoteSeq;
+  if (hint) hint.textContent = 'Getting quote…';
+  try {
+    const amountRaw = Math.round(amount * 10 ** from.decimals);
+    // Include the same platform fee the actual swap will apply, so the
+    // estimate shown here matches what executeJupiterSwap will really send.
+    const quote = await fetchJupiterQuote({ inputMint: from.mint, outputMint: to.mint, amountLamports: amountRaw, platformFeeBps: PLATFORM_FEE_BPS });
+    if (seq !== veloSwapQuoteSeq) return; // a newer input superseded this quote
+    const outAmount = Number(quote.outAmount) / 10 ** to.decimals;
+    toAmountEl.value = outAmount.toLocaleString(undefined, { maximumFractionDigits: 8 });
+    if (hint) hint.textContent = `1 ${from.symbol || 'token'} ≈ ${(outAmount / amount).toLocaleString(undefined, { maximumFractionDigits: 8 })} ${to.symbol || 'token'}`;
+  } catch (err) {
+    if (seq !== veloSwapQuoteSeq) return;
+    console.error('Swap quote failed:', err);
+    toAmountEl.value = '';
+    if (hint) { hint.textContent = 'No route found for this pair right now.'; hint.style.color = 'var(--red)'; }
+  }
+}
+
+function wireGenericSwapButton() {
+  const btn = document.getElementById('tradeBtn');
+  if (!btn) return;
+  btn.className = 'trade-submit buy-btn';
+  btn.dataset.jupiterMode = '1';
+  btn.dataset.swapMode = 'generic';
+
+  const { from, to } = veloSwapState;
+  const amount = parseFloat(document.getElementById('swapFromAmount')?.value);
+  const ready = from && to && amount > 0;
+
+  if (!veloMainnetWallet) {
+    btn.textContent = '🔌 Connect Wallet to Swap';
+    btn.disabled = false;
+    btn.onclick = () => openMainnetWalletPicker();
+    return;
+  }
+  if (!ready) {
+    btn.textContent = '🔀 Select tokens and an amount';
+    btn.disabled = true;
+    btn.onclick = null;
+    return;
+  }
+
+  btn.textContent = '🔀 Swap';
+  btn.disabled = false;
+  btn.onclick = async () => {
+    const amountNow = parseFloat(document.getElementById('swapFromAmount').value);
+    if (!amountNow || amountNow <= 0) { showTradeStatus('Enter an amount first.', 'var(--red)'); return; }
+    const estOut = document.getElementById('swapToAmount').value || '?';
+
+    const confirmMsg = `Swap ${amountNow} ${from.symbol || shortenAddress(from.mint)} for approximately ${estOut} ${to.symbol || shortenAddress(to.mint)}?\n\nThis is a REAL trade on Solana MAINNET using REAL funds from your connected wallet (${veloMainnetWallet.provider}). Velo takes a 1% platform fee on this trade. This is not test money and cannot be undone.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Swapping…';
+    showTradeStatus('Sending your swap — approve it in your wallet…', 'var(--text-secondary)');
+
+    try {
+      const amountRaw = Math.round(amountNow * 10 ** from.decimals);
+      const { signature } = await executeJupiterSwap({ inputMint: from.mint, outputMint: to.mint, amountRaw });
+      const statusEl = document.getElementById('tradeStatus');
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--green)';
+        statusEl.innerHTML = `✅ Sent — <a href="https://solscan.io/tx/${signature}" target="_blank" rel="noopener" style="color:var(--green);text-decoration:underline;">view on Solscan</a>`;
+      }
+      document.getElementById('swapFromAmount').value = '';
+      document.getElementById('swapToAmount').value = '';
+    } catch (err) {
+      console.error('Swap failed:', err);
+      showTradeStatus('Failed: ' + (err && err.message ? err.message : 'Unknown error.'), 'var(--red)');
+    } finally {
+      wireGenericSwapButton();
+    }
+  };
+}
