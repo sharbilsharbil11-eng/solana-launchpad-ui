@@ -85,9 +85,13 @@ echo "=== 3/7: Build ==="
 cargo build-sbf --manifest-path programs/bonding_curve/Cargo.toml
 
 echo "=== 4/7: Verify the Program ID matches exactly ==="
-KEYS_OUTPUT="$(anchor keys list)"
-echo "$KEYS_OUTPUT"
-if ! echo "$KEYS_OUTPUT" | grep -q "4NJruKvypWrYoM5iGj7a9JCg9aVoNzWaDLHk5AsLnVwb"; then
+# `anchor keys list` also shells out through anchor-cli, which hit the same
+# anchor-syn/proc-macro2 conflict as `anchor build` — reading the keypair
+# file directly with solana-keygen avoids anchor-cli entirely for this
+# check (it's the same keypair copied into target/deploy/ in step 2).
+KEYS_OUTPUT="$(solana-keygen pubkey target/deploy/bonding_curve-keypair.json)"
+echo "Program ID: $KEYS_OUTPUT"
+if [ "$KEYS_OUTPUT" != "4NJruKvypWrYoM5iGj7a9JCg9aVoNzWaDLHk5AsLnVwb" ]; then
   echo "ERROR: built Program ID does not match the expected 4NJruKvypWrYoM5iGj7a9JCg9aVoNzWaDLHk5AsLnVwb"
   echo "Did target/deploy/bonding_curve-keypair.json get overwritten? Re-run from step 2."
   exit 1
@@ -102,7 +106,11 @@ echo "Deploy wallet: $(solana address)"
 solana airdrop 2 || echo "Airdrop failed/rate-limited — top up manually at https://faucet.solana.com if the deploy below fails for insufficient funds."
 
 echo "=== 6/7: Deploy ==="
-anchor deploy --provider.cluster devnet
+# solana program deploy directly, not `anchor deploy` — anchor-cli's deploy
+# command re-runs a build first by default, which would hit the same
+# anchor-syn/proc-macro2 conflict all over again. The .so from step 3 is
+# already built and verified; just ship it.
+solana program deploy target/deploy/bonding_curve.so --program-id target/deploy/bonding_curve-keypair.json
 
 echo "=== 7/7: One-time platform initialization (0.5% platform + 0.5% creator fee) ==="
 node scripts/initialize-platform.js "$FEE_RECIPIENT" https://api.devnet.solana.com
