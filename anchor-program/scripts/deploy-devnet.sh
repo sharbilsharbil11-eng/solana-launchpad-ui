@@ -52,8 +52,15 @@ fi
 if ! command -v avm >/dev/null 2>&1; then
   cargo install --git https://github.com/coral-xyz/anchor avm --locked
 fi
-avm install latest
-avm use latest
+# Pinned to the exact version programs/bonding_curve/Cargo.toml declares
+# (anchor-lang = "0.30.1") — "avm install latest" hits GitHub's API on
+# every single run just to find out what's newest, which is both
+# unnecessary (once 0.30.1 is installed, there's nothing to do) and a
+# needless failure point if that API call times out.
+if ! avm list 2>/dev/null | grep -q '0\.30\.1'; then
+  avm install 0.30.1
+fi
+avm use 0.30.1
 
 echo "=== 2/7: Place the real program keypair before building ==="
 # Without this, `anchor build` generates a random new keypair and ignores
