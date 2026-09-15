@@ -50,7 +50,7 @@ pub struct CreateToken<'info> {
         seeds = [BONDING_CURVE_SEED, mint.key().as_ref()],
         bump
     )]
-    pub bonding_curve: Account<'info, BondingCurve>,
+    pub bonding_curve: Box<Account<'info, BondingCurve>>,
 
     /// خزينة توكن المنحنى — كامل الـ 100% من العرض بينسك هون مباشرة، صفر حجز
     #[account(
@@ -70,7 +70,7 @@ pub struct CreateToken<'info> {
         seeds = [FEE_SPLITTER_SEED, mint.key().as_ref()],
         bump
     )]
-    pub fee_splitter: Account<'info, FeeSplitter>,
+    pub fee_splitter: Box<Account<'info, FeeSplitter>>,
 
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
