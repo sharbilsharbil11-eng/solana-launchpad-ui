@@ -69,15 +69,20 @@ mkdir -p target/deploy
 cp program-keypair.json target/deploy/bonding_curve-keypair.json
 
 echo "=== 3/7: Build ==="
-# --no-idl: IDL generation pulls in anchor-syn's IDL codegen, which calls a
-# proc-macro2 API (Span::source_file) that newer proc-macro2 releases removed
-# — a real version conflict against anchor-lang's own pinned thiserror
-# dependency (not just an edition2024 mismatch like the other pins in this
-# script). Skipping IDL generation sidesteps it entirely; it isn't needed to
-# build and deploy the program itself. Generate the IDL separately later
-# (`anchor idl build`) once Anchor ships a release compatible with current
-# crates.io versions, if a real IDL file is ever needed.
-anchor build --no-idl -- --features no-idl
+# `anchor build` (even with --no-idl / --features no-idl) proved unreliable
+# on a real machine — it intermittently still compiled anchor-syn's IDL
+# codegen path, which calls a proc-macro2 API (Span::source_file) that
+# newer proc-macro2 releases removed. That's a real version conflict
+# against anchor-lang's own pinned thiserror dependency, not just an
+# edition2024 mismatch like the other pins in this script, and IDL
+# generation isn't needed to build/deploy the program itself.
+#
+# `cargo build-sbf` is the same underlying Solana BPF builder `anchor build`
+# wraps — calling it directly skips anchor-cli's IDL-generation logic
+# entirely (that logic lives in anchor-cli, not in cargo/solana's own
+# tooling), avoiding the conflict altogether. Confirmed working on the same
+# machine: produces target/deploy/bonding_curve.so with no errors.
+cargo build-sbf --manifest-path programs/bonding_curve/Cargo.toml
 
 echo "=== 4/7: Verify the Program ID matches exactly ==="
 KEYS_OUTPUT="$(anchor keys list)"
