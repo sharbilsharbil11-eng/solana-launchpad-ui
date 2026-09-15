@@ -20,17 +20,46 @@
    a real token Jupiter knows about: same page, same Buy/Sell panel a
    Velo-native token uses, just backed by a real swap instead.
 
+   Every real swap also routes a 1% platform commission to Velo, via
+   Jupiter's own Referral Program (referral.jup.ag) — see the constants
+   below. Jupiter deducts it directly from the swap's output amount; Velo
+   never does a separate transfer.
+
    IMPORTANT — could not verify live: this sandbox has no network access
    to Jupiter's API (see jupiter.js's own note), so the Quote/Swap API
    request and response shapes below are best-effort from Jupiter's
    documented Swap API v1, not confirmed against a live call. Get one real
-   test swap in before trusting this with meaningful amounts.
+   test swap in before trusting this with meaningful amounts — including
+   confirming the 1% fee actually lands on the referral dashboard.
    ================================================================ */
 
 const SOLANA_MAINNET_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
 const JUPITER_SWAP_API = 'https://lite-api.jup.ag/swap/v1';
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 const DEFAULT_SWAP_SLIPPAGE_BPS = 100; // 1% — real slippage on a real trade, not the free-test-SOL tolerance used elsewhere
+
+// ── Velo's commission on real Jupiter swaps ──
+// Set up by the user via Jupiter's own Referral Dashboard (referral.jup.ag) —
+// not something Velo's code creates. Every real buy/sell routed through
+// Jupiter sends this cut to that account automatically, taken out of the
+// output side of the swap by Jupiter itself (never a separate transfer).
+// PDA derivation could not be verified against a live call in this sandbox
+// (no network access to Jupiter/Solana here) — it follows Jupiter's
+// documented Referral Program convention. Confirm the fee actually lands
+// on the referral dashboard after one real test trade before relying on it.
+const JUPITER_REFERRAL_PROGRAM_ID = 'REFER4ZgmyYx9c6He5XfaTMiGfdLwRnkV4RPp9t9iF3';
+const JUPITER_REFERRAL_ACCOUNT = '5vzXuVQwgjNEG75tbVSCAxZN9RGp4q1HA9AH2j6Pi5rb';
+const PLATFORM_FEE_BPS = 100; // 1%
+
+// Each mint Velo collects fees in needs its own Referral Token Account —
+// a PDA under the Referral Program, unique per (referral account, mint).
+function getReferralFeeAccount(mint) {
+  const [pda] = solanaWeb3.PublicKey.findProgramAddressSync(
+    [new TextEncoder().encode('referral_ata'), new solanaWeb3.PublicKey(JUPITER_REFERRAL_ACCOUNT).toBuffer(), new solanaWeb3.PublicKey(mint).toBuffer()],
+    new solanaWeb3.PublicKey(JUPITER_REFERRAL_PROGRAM_ID)
+  );
+  return pda.toBase58();
+}
 
 let veloMainnetWallet = null; // { provider: string, instance, publicKey: string } | null, once connected
 
@@ -147,8 +176,9 @@ function updateMarketWalletUI() {
 }
 
 // ── Quote + swap, via Jupiter's Swap API v1 ──
-async function fetchJupiterQuote({ inputMint, outputMint, amountLamports, slippageBps = DEFAULT_SWAP_SLIPPAGE_BPS }) {
-  const url = `${JUPITER_SWAP_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountLamports}&slippageBps=${slippageBps}`;
+async function fetchJupiterQuote({ inputMint, outputMint, amountLamports, slippageBps = DEFAULT_SWAP_SLIPPAGE_BPS, platformFeeBps = 0 }) {
+  let url = `${JUPITER_SWAP_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountLamports}&slippageBps=${slippageBps}`;
+  if (platformFeeBps > 0) url += `&platformFeeBps=${platformFeeBps}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Jupiter quote failed (${resp.status})`);
   const quote = await resp.json();
@@ -156,11 +186,13 @@ async function fetchJupiterQuote({ inputMint, outputMint, amountLamports, slippa
   return quote;
 }
 
-async function buildJupiterSwapTransaction({ quoteResponse, userPublicKey }) {
+async function buildJupiterSwapTransaction({ quoteResponse, userPublicKey, feeAccount = null }) {
+  const body = { quoteResponse, userPublicKey, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true };
+  if (feeAccount) body.feeAccount = feeAccount;
   const resp = await fetch(`${JUPITER_SWAP_API}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ quoteResponse, userPublicKey, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true }),
+    body: JSON.stringify(body),
   });
   if (!resp.ok) throw new Error(`Jupiter swap build failed (${resp.status})`);
   const data = await resp.json();
@@ -197,8 +229,16 @@ async function executeJupiterSwap({ inputMint, outputMint, amountRaw, slippageBp
   if (!veloMainnetWallet) throw new Error('Connect a wallet first.');
   if (!(amountRaw > 0)) throw new Error('Enter an amount greater than 0.');
 
-  const quote = await fetchJupiterQuote({ inputMint, outputMint, amountLamports: amountRaw, slippageBps });
-  const swapTxB64 = await buildJupiterSwapTransaction({ quoteResponse: quote, userPublicKey: veloMainnetWallet.publicKey });
+  // Commission is taken out of the output side of the swap, so the fee
+  // account must be a Referral Token Account for the output mint — if the
+  // PDA can't be derived for some reason, fall back to a fee-free swap
+  // rather than blocking the user's trade entirely.
+  let feeAccount = null;
+  try { feeAccount = getReferralFeeAccount(outputMint); } catch (err) { console.warn('Could not derive Jupiter referral fee account, proceeding without a platform fee:', err); }
+  const platformFeeBps = feeAccount ? PLATFORM_FEE_BPS : 0;
+
+  const quote = await fetchJupiterQuote({ inputMint, outputMint, amountLamports: amountRaw, slippageBps, platformFeeBps });
+  const swapTxB64 = await buildJupiterSwapTransaction({ quoteResponse: quote, userPublicKey: veloMainnetWallet.publicKey, feeAccount });
   const signature = await signAndSendWithMainnetWallet(swapTxB64);
   return { signature, quote };
 }

@@ -395,8 +395,8 @@ function wireJupiterTradeButton(jt) {
 
     const tokenLabel = jt.name || jt.symbol || shortenAddress(jt.mint);
     const confirmMsg = mode === 'buy'
-      ? `Buy ${tokenLabel} with ${amount} SOL?\n\nThis is a REAL trade on Solana MAINNET using REAL SOL from your connected wallet (${veloMainnetWallet.provider}). This is not test money and cannot be undone.`
-      : `Sell ${amount} ${jt.symbol || tokenLabel} for SOL?\n\nThis is a REAL trade on Solana MAINNET from your connected wallet (${veloMainnetWallet.provider}). This is not test money and cannot be undone.`;
+      ? `Buy ${tokenLabel} with ${amount} SOL?\n\nThis is a REAL trade on Solana MAINNET using REAL SOL from your connected wallet (${veloMainnetWallet.provider}). Velo takes a 1% platform fee on this trade. This is not test money and cannot be undone.`
+      : `Sell ${amount} ${jt.symbol || tokenLabel} for SOL?\n\nThis is a REAL trade on Solana MAINNET from your connected wallet (${veloMainnetWallet.provider}). Velo takes a 1% platform fee on this trade. This is not test money and cannot be undone.`;
     if (!window.confirm(confirmMsg)) return;
 
     const originalText = btn.textContent;
