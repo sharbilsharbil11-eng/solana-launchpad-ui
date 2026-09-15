@@ -74,6 +74,23 @@ async function fetchJupiterTokenByMint(mint) {
   return normalized.find((t) => t.mint === mint) || null;
 }
 
+// General search by name/symbol/mint (any non-empty match Jupiter returns),
+// for the generic swap token picker (token.html with no ?mint=) — see
+// token-page.js's initGenericSwapPage. Unlike fetchJupiterTokenByMint this
+// returns every match, not just an exact mint hit.
+async function searchJupiterTokens(query, { limit = 15 } = {}) {
+  const q = (query || '').trim();
+  if (!q) return [];
+  const url = `${JUPITER_TOKEN_API}/search?query=${encodeURIComponent(q)}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Jupiter token search failed (${resp.status})`);
+  const data = await resp.json();
+  const list = Array.isArray(data) ? data : Array.isArray(data?.tokens) ? data.tokens : [];
+  return list.map(normalizeJupiterToken).filter(Boolean).slice(0, limit);
+}
+
+const SOL_PSEUDO_TOKEN = { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', name: 'Solana', icon: null, decimals: 9 };
+
 function formatUsd(n) {
   if (!isFinite(n) || n === 0) return '$0';
   if (n >= 1_000_000_000) return '$' + (n / 1_000_000_000).toFixed(2) + 'B';
