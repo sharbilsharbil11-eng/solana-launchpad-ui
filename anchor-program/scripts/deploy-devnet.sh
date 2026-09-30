@@ -52,8 +52,15 @@ fi
 if ! command -v avm >/dev/null 2>&1; then
   cargo install --git https://github.com/coral-xyz/anchor avm --locked
 fi
-avm install latest
-avm use latest
+# Pinned to the exact version programs/bonding_curve/Cargo.toml declares
+# (anchor-lang = "0.30.1") — "avm install latest" hits GitHub's API on
+# every single run just to find out what's newest, which is both
+# unnecessary (once 0.30.1 is installed, there's nothing to do) and a
+# needless failure point if that API call times out.
+if ! avm list 2>/dev/null | grep -q '0\.30\.1'; then
+  avm install 0.30.1
+fi
+avm use 0.30.1
 
 echo "=== 2/7: Place the real program keypair before building ==="
 # Without this, `anchor build` generates a random new keypair and ignores
@@ -62,12 +69,29 @@ mkdir -p target/deploy
 cp program-keypair.json target/deploy/bonding_curve-keypair.json
 
 echo "=== 3/7: Build ==="
-anchor build
+# `anchor build` (even with --no-idl / --features no-idl) proved unreliable
+# on a real machine — it intermittently still compiled anchor-syn's IDL
+# codegen path, which calls a proc-macro2 API (Span::source_file) that
+# newer proc-macro2 releases removed. That's a real version conflict
+# against anchor-lang's own pinned thiserror dependency, not just an
+# edition2024 mismatch like the other pins in this script, and IDL
+# generation isn't needed to build/deploy the program itself.
+#
+# `cargo build-sbf` is the same underlying Solana BPF builder `anchor build`
+# wraps — calling it directly skips anchor-cli's IDL-generation logic
+# entirely (that logic lives in anchor-cli, not in cargo/solana's own
+# tooling), avoiding the conflict altogether. Confirmed working on the same
+# machine: produces target/deploy/bonding_curve.so with no errors.
+cargo build-sbf --manifest-path programs/bonding_curve/Cargo.toml
 
 echo "=== 4/7: Verify the Program ID matches exactly ==="
-KEYS_OUTPUT="$(anchor keys list)"
-echo "$KEYS_OUTPUT"
-if ! echo "$KEYS_OUTPUT" | grep -q "4NJruKvypWrYoM5iGj7a9JCg9aVoNzWaDLHk5AsLnVwb"; then
+# `anchor keys list` also shells out through anchor-cli, which hit the same
+# anchor-syn/proc-macro2 conflict as `anchor build` — reading the keypair
+# file directly with solana-keygen avoids anchor-cli entirely for this
+# check (it's the same keypair copied into target/deploy/ in step 2).
+KEYS_OUTPUT="$(solana-keygen pubkey target/deploy/bonding_curve-keypair.json)"
+echo "Program ID: $KEYS_OUTPUT"
+if [ "$KEYS_OUTPUT" != "4NJruKvypWrYoM5iGj7a9JCg9aVoNzWaDLHk5AsLnVwb" ]; then
   echo "ERROR: built Program ID does not match the expected 4NJruKvypWrYoM5iGj7a9JCg9aVoNzWaDLHk5AsLnVwb"
   echo "Did target/deploy/bonding_curve-keypair.json get overwritten? Re-run from step 2."
   exit 1
@@ -82,7 +106,11 @@ echo "Deploy wallet: $(solana address)"
 solana airdrop 2 || echo "Airdrop failed/rate-limited — top up manually at https://faucet.solana.com if the deploy below fails for insufficient funds."
 
 echo "=== 6/7: Deploy ==="
-anchor deploy --provider.cluster devnet
+# solana program deploy directly, not `anchor deploy` — anchor-cli's deploy
+# command re-runs a build first by default, which would hit the same
+# anchor-syn/proc-macro2 conflict all over again. The .so from step 3 is
+# already built and verified; just ship it.
+solana program deploy target/deploy/bonding_curve.so --program-id target/deploy/bonding_curve-keypair.json
 
 echo "=== 7/7: One-time platform initialization (0.5% platform + 0.5% creator fee) ==="
 node scripts/initialize-platform.js "$FEE_RECIPIENT" https://api.devnet.solana.com
